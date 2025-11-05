@@ -1,0 +1,8 @@
+requests
+fake-useragent
+beautifulsoup4
+cython
+rarfile
+pyzipper
+py7zr
+mega.py

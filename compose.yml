@@ -1,0 +1,14 @@
+services:
+  kemono-downloader:
+    image: lanusgaming/kemono-downloader:preview
+    build: ./
+    container_name: kemono-downloader
+    environment:
+      - DEFAULT_DOMAIN=kemono.cr
+      - SESSION_COOKIE=
+      - CREATOR_URL_FILE=
+    volumes:
+      - /temp:/temp
+      - /data:/data
+      - /config:/config
+      

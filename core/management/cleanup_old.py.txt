@@ -1,0 +1,229 @@
+import os, shutil, logging
+from ..kemono import get_all_posts_from_creator, detect_files_in_post
+from ..utils import *
+from ..creator import load_creator_config, load_files, save_files, get_file_id, generate_file_path, get_files_path, DEFAULT_FILE
+from ..files import load_json, generate_hash, is_archive, unpack
+
+logger = logging.getLogger("downloader")
+
+def migrate_files(old_paths: list[str], new_path: str):
+    for old_path in old_paths:
+        if os.path.exists(old_path):
+            os.makedirs(os.path.dirname(new_path), exist_ok=True)
+            shutil.move(old_path, new_path)
+            try:
+                os.removedirs(os.path.dirname(old_path))
+            except:
+                continue
+
+def clean_up_creator_config(creator_id: str):
+    old_config_paths = [f"/config/creators/{creator_id}.json"]
+    new_config_path = f"/config/creators/{creator_id}/config.json"
+
+    migrate_files(old_config_paths, new_config_path)
+
+def clean_up_hashes(post_folder: str, creator_id: str, post_id: str):
+    old_hashes_paths = [f"/config/hashes/{post_folder}/.hashes.json"]
+    new_hashes_path = f"/config/hashes/{creator_id}/{post_id}.json"
+
+    migrate_files(old_hashes_paths, new_hashes_path)
+
+def clean_up(creator: dict, reextract_all: bool = False):
+    creator_name = sanitize_filename(creator['name'])
+    creator_service = creator['service']
+    creator_id = creator['id']
+
+    if creator_id == '17923782':
+        return
+
+    logger.info(f"\n\n----------|| {creator_name} - {creator_service} - {creator_id} ||----------\n")
+    
+    logger.info(f"Cleaning config files...")
+    clean_up_creator_config(creator_id)
+    creator_config = load_creator_config(creator_id)
+
+    logger.info(f"Loading file metadata...")
+    files = load_files(creator_id)
+    all_hashes = {files[id]['hash']:{'filepath': files[id]['path']} for id in files}
+
+    if len(files) > 0:
+        new_files = {}
+        for id in files:
+            if files[id]['path']:
+                files[id]['url'] = files[id]['url'].split('f=')[0]
+                new_files[f"{files[id]['post_id']}_{files[id]['index']}"] = files[id]
+        
+        os.remove(get_files_path(creator_id))
+        save_files(new_files, creator_id)
+
+    return
+
+    logger.info(f"Fetching creator posts...")
+    all_posts = get_all_posts_from_creator(creator_service, creator_id)
+    logger.info(f"Found {len(all_posts)} posts")
+
+    for post in all_posts:
+        
+        published = post['published']
+        published_post = post
+        while not published:
+            i = all_posts.index(published_post)
+            if i == 0:
+                published = '2004-01-14T12:00:00'
+            published_post = all_posts[i - 1]
+            published = published_post['published']
+        post_time = get_post_time(published)
+        post_title = sanitize_filename(post['title'])
+        post_id = post['id']
+
+        logger.info(f"### {post_title} - {post_id} ###")
+
+        logger.info(f"Detecting files in post...")
+        post_files = detect_files_in_post(post, None, None)
+        logger.info(f"Found {len(post_files)} files")
+
+        post_folder = f"{creator_name}_{creator_service}_{creator_id}/{post_title}_{post_id}"
+
+        logger.info(f"Cleaning hash files...")
+        clean_up_hashes(post_folder, creator_id, post_id)
+
+        logger.info(f"Updating files...")
+
+        hashes = {}
+        hashes_path = f"/config/hashes/{creator_id}/{post_id}.json"
+        if os.path.exists(hashes_path):
+            hashes = load_json(hashes_path)
+            logger.info(f"Found hashes file -> {hashes_path}")
+        
+        else:
+            hashes = all_hashes
+
+        queue = {}
+
+        for file_data in post_files:
+            file = DEFAULT_FILE.copy()
+
+            file.update(file_data)
+            file['creator_id'] = creator_id
+            file['creator_service'] = creator_service
+            file['creator_name'] = creator_name
+            file['post_id'] = post_id
+            file['post_title'] = post_title
+            file['published'] = post_time
+            
+            url_hash = get_hash_from_url(file['url'])
+            if url_hash in hashes:
+                logger.info(f"Found in hashes -> {file['name']}")
+
+                old_path = hashes[get_hash_from_url(file['url'])]['filepath']
+                new_path = '/data' + generate_file_path(file)
+
+                if os.path.exists(old_path):
+                    logger.info(f"Found file      -> {file['name']} at {old_path}")
+                    file['path'] = new_path
+                    file['hash'] = generate_hash(old_path)
+                    queue[old_path] = new_path
+                else:
+                    logger.info(f"Could not find file {file['name']}")
+                
+                if is_archive(old_path) and os.path.exists(os.path.dirname(old_path)):
+                    old_index = os.path.basename(old_path).split('_')[0]
+                    old_archive_folder_path = os.path.splitext(old_path)[0]
+                    new_archive_folder_path = os.path.splitext(new_path)[0]
+
+                    file['archive_files'] = []
+
+                    extracted = False
+
+                    logger.info(f"Updating archive files...")
+
+                    if reextract_all:
+                        if os.path.exists(old_archive_folder_path):
+                            shutil.rmtree(old_archive_folder_path, ignore_errors=True)
+                        if os.path.exists(new_archive_folder_path):
+                            shutil.rmtree(new_archive_folder_path, ignore_errors=True)
+                    else:
+                        with os.scandir(os.path.dirname(old_path)) as existing_post_files:
+                            for post_file in existing_post_files:
+                                if post_file.path == old_path:
+                                    continue
+
+                                if post_file.path == old_archive_folder_path:
+                                    queue[post_file.path] = new_unpacked_file_path
+
+                                    with os.scandir(old_archive_folder_path) as archive_folder_files:
+                                        for archive_file in archive_folder_files:
+                                            parts = archive_file.name.split('_')
+                                            file['archive_files'].append('_'.join(parts[1:len(parts)]))
+
+                                            os.utime(archive_file.path, (post_time, post_time))
+
+                                    extracted = True
+
+                                    break
+
+                                parts = post_file.name.split('_')
+
+                                if False and len(parts) >= 3 and old_index == parts[0] and len(parts[1]) == 3 and str.isdigit(parts[1]):
+                                    new_path = os.path.join(new_unpacked_file_path, post_file.name.replace(old_index, f"{file['index']:03d}"))
+                                    queue[post_file.path] = new_path
+
+                                    file['archive_files'].append('_'.join(parts[1:len(parts)]))
+
+                                    extracted = True
+                    
+                    if not extracted or reextract_all:
+                        logger.info(f"Extracting archive...")
+                        try:
+                            unpacked_files, password = unpack(old_path, creator_config['ALLOWED_EXTENSIONS'], creator_config['ZIP_PASSWORDS'])
+                            file['password'] = password
+                            
+                            if len(unpacked_files) > 0:
+                                os.makedirs(old_archive_folder_path, exist_ok=True)
+
+                                for unpacked_file in unpacked_files:
+                                    unpacked_filename = f"{os.path.splitext(os.path.basename(unpacked_file[0]))[0]}_{unpacked_file[1]}"
+                                    new_unpacked_file_path = f"{old_archive_folder_path}/{file['index']:03d}_{unpacked_filename}"
+
+                                    shutil.move(unpacked_file[0], new_unpacked_file_path)
+                                    os.utime(new_unpacked_file_path, (post_time, post_time))
+
+                                    file['archive_files'].append(unpacked_filename)
+
+                                queue[old_archive_folder_path] = new_archive_folder_path
+                                
+                                if password:
+                                    logger.info(f"Extracted {len(unpacked_files)} files (password = {password})")
+                                else:
+                                    logger.info(f"Extracted {len(unpacked_files)} files")
+                        
+                        except RuntimeError as e:
+                            logger.error(f"Failed extracting ({e})")
+                            logger.debug(f"[Exception] {e}")
+                        except Exception as e:
+                            logger.error(f"Failed extracting")
+                            logger.info(f"[Exception] {e}")
+
+            files[get_file_id(file)] = file
+            logger.info(f"Added to files  -> {file['name']}")
+
+        logger.info(f"Moving files...")
+        
+        if os.path.exists(os.path.join('/data', post_folder)):
+            with os.scandir(os.path.join('/data', post_folder)) as existing_post_files:
+                for file in existing_post_files:
+                    if file.path in queue:
+                        os.rename(file.path, queue[file.path])
+                        os.utime(queue[file.path], (post_time, post_time))
+                    else:
+                        if file.is_file():
+                            os.remove(file.path)
+                        else:
+                            shutil.rmtree(file.path)
+
+        if os.path.exists(hashes_path):
+            logger.info(f"Removing old hash file -> {hashes_path}")
+            os.remove(hashes_path)
+
+        logger.info(f"Saving {len(files)} files...")
+        save_files(files, creator_id)
