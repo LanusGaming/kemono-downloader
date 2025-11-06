@@ -266,6 +266,8 @@ class Creator:
         if not success:
             logger.warning(f"Could not find matching password -> {file.path}")
             return False
+        
+        file.archive_files = []
 
         logger.debug(f"Renaming archive files... -> {file.path}")
         archive_folder = os.path.splitext(file.path)[0]
