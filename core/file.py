@@ -105,7 +105,9 @@ class File:
         os.makedirs(dest_folder, exist_ok=True)
 
         shutil.move(temp_path, dest_path)
-        os.utime(dest_path, (self.published, self.published))
+
+        time = self.published + self.index
+        os.utime(dest_path, (time, time))
         os.utime(dest_folder, (self.published, self.published))
         logger.debug(f"Finished moving -> {dest_path}")
 

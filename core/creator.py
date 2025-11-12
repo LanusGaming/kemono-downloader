@@ -283,7 +283,9 @@ class Creator:
             new_archive_file_name = f"{archive_file_index}_{archive_file_name}"
             new_archive_file_path = f"{archive_folder}/{file.index:03d}_{new_archive_file_name}"
             os.rename(archive_file_path, new_archive_file_path)
-            os.utime(new_archive_file_path, (file.published, file.published))
+
+            time = file.published + int(archive_file_index)/1000.0
+            os.utime(new_archive_file_path, (time, time))
 
             archive_file = File(file.get_data())
             archive_file.index = int(archive_file_index)
