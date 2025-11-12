@@ -6,7 +6,7 @@ from core.utils import sort_creators_by_recency
 from core.files import get_creators_from_file
 from core.management.cleanup import cleanup
 from core.management.deduplicate import deduplicate
-#from core.mega import test_mega
+from core.mega import test_mega
 
 logger = logging.getLogger("downloader")
 failure_logger = logging.getLogger("failed")
@@ -70,7 +70,7 @@ def main():
         #migrate_original_downloads('/data', '/data', delete_skipped.lower() == 'true', delete_remaining.lower() == 'true')
         time.sleep(5)
 
-    #test_mega()
+    test_mega()
 
     if creator_url_filepath:
         if not os.path.exists(creator_url_filepath):

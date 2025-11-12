@@ -5,3 +5,4 @@ cython
 rarfile
 pyzipper
 py7zr
+mega.py
