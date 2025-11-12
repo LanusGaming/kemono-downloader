@@ -123,12 +123,11 @@ def extract(filepath: str, password: str) -> list[tuple[str, str]]:
 
     ext = os.path.splitext(filepath)[1].lower()
 
-    try:
-        if ext == '.zip':
-            unzip(filepath, temp_dir, password)
+    if ext == '.zip':
+        unzip(filepath, temp_dir, password)
     
-        if ext == '.rar':
-            unrar(filepath, temp_dir, password)
+    if ext == '.rar':
+        unrar(filepath, temp_dir, password)
 
         if ext == '.7z':
             un7z(filepath, temp_dir, password)
