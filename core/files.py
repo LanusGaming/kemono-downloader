@@ -76,10 +76,6 @@ def unzip(filepath: str, directory: str, password: str):
                 raise RuntimeError(f"Password incorrect -> {password}")
             else:
                 raise RuntimeError("Password may be required")
-        except Exception as e:
-            if os.path.exists(directory):
-                shutil.rmtree(directory, ignore_errors=True)
-            raise e
 
 def unrar(filepath: str, directory: str, password: str):
     try:
@@ -94,10 +90,6 @@ def unrar(filepath: str, directory: str, password: str):
             raise RuntimeError(f"Password incorrect -> {password}")
         else:
             raise RuntimeError("Password may be required")
-    except Exception as e:
-        if os.path.exists(directory):
-            shutil.rmtree(directory, ignore_errors=True)
-        raise e
     
 def un7z(filepath: str, directory: str, password: str):
     try:
@@ -109,10 +101,6 @@ def un7z(filepath: str, directory: str, password: str):
             raise RuntimeError(f"Password incorrect -> {password}")
         else:
             raise RuntimeError("Password may be required")
-    except Exception as e:
-        if os.path.exists(directory):
-            shutil.rmtree(directory, ignore_errors=True)
-        raise e
 
 def extract(filepath: str, password: str) -> list[tuple[str, str]]:
     dir = os.path.splitext(filepath)[0]
@@ -123,14 +111,19 @@ def extract(filepath: str, password: str) -> list[tuple[str, str]]:
 
     ext = os.path.splitext(filepath)[1].lower()
 
-    if ext == '.zip':
-        unzip(filepath, temp_dir, password)
-    
-    if ext == '.rar':
-        unrar(filepath, temp_dir, password)
+    try:
+        if ext == '.zip':
+            unzip(filepath, temp_dir, password)
+        
+        if ext == '.rar':
+            unrar(filepath, temp_dir, password)
 
-    if ext == '.7z':
-        un7z(filepath, temp_dir, password)
+        if ext == '.7z':
+            un7z(filepath, temp_dir, password)
+
+    finally:
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir, ignore_errors=True)
     
     if os.path.exists(dir):
         shutil.rmtree(dir, ignore_errors=True)
