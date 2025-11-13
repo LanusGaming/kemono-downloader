@@ -33,6 +33,3 @@ def get_post_time(post_datetime: str) -> float:
 
 def get_hash_from_url(url: str) -> str:
     return os.path.splitext(os.path.basename(url.split('?')[0]))[0]
-
-def sort_creators_by_recency(creators: list[dict], newest_first: bool = True) -> list[dict]:
-    return sorted(creators, key=lambda creator: creator['last_imported'], reverse=newest_first)

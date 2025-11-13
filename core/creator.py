@@ -1,4 +1,4 @@
-import os, logging
+import os, logging, re
 from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -13,6 +13,8 @@ logger = logging.getLogger("downloader")
 failure_logger = logging.getLogger("failed")
 
 DEFAULT_CREATOR_CONFIG = {
+    'INCLUDE_REGEX': '',
+    'EXCLUDE_REGEX': '',
     'ALLOWED_EXTENSIONS': ['.jpg', '.jpeg', '.png', '.zip', '.mp4', '.gif', '.pdf', '.7z', '.mp3', '.wav', '.rar', '.mov', '.docx', '.jpe', '.webp'],
     'ALLOWED_TYPES': ['attachment'],
     'AUTO_UNZIP': True,
@@ -30,6 +32,7 @@ class Creator:
         self.name = sanitize_filename(data['name'])
         self.service = data['service']
         self.id = data['id']
+        self.last_imported = data['last_imported']
 
         logger.info(f"\n\n----------|| {self.name} - {self.service} - {self.id} ||----------\n")
 
@@ -135,7 +138,7 @@ class Creator:
                 'creator_name': self.name,
                 'post_id': post['id'],
                 'post_title': sanitize_filename(post['title']),
-                'published': get_post_time(post['published']),
+                'published': get_post_time(post['published']) if post['published'] else None,
                 'index': file_index,
                 'name': sanitize_filename(file_name),
                 'url': file_url,
@@ -165,6 +168,11 @@ class Creator:
                 if hash in self.hashes:
                     skipped += 1
                     continue
+
+                if not file.published:
+                    index = posts.index(post) - 1
+                    post['published'] = posts[index]['published']
+                    file.published = get_post_time(post['published']) - 1000
 
                 files.append(file)
                 self.hashes.add(hash)
