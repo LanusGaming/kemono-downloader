@@ -32,7 +32,7 @@ class Creator:
         self.name = sanitize_filename(data['name'])
         self.service = data['service']
         self.id = data['id']
-        self.last_imported = data['last_imported']
+        self.last_imported = data['last_imported'] if 'last_imported' in data else data['updated']
 
         logger.info(f"\n\n----------|| {self.name} - {self.service} - {self.id} ||----------\n")
 
@@ -65,6 +65,16 @@ class Creator:
     
     def load_files(self):
         self.files = load_json(self.get_files_path()) or {}
+        if len(self.files) == 0:
+            logger.debug(f"Couldnt load any existing files")
+
+        archive_file_count = 0
+        for file_id in self.files:
+            if self.files[file_id]['type'] == 'archive':
+                archive_file_count += 1
+
+        logger.info(f"Found {len(self.files)} existing files ({archive_file_count} from archives)")
+
         self.hashes = {get_hash_from_url(self.files[id]['url']) for id in self.files}
 
     def save_file(self, file: File):
@@ -157,16 +167,25 @@ class Creator:
         logger.info("Detecting files in posts...")
 
         files = []
-        skipped = 0
+        skipped = [0, 0, 0]
         for post in posts:
             post_files, post_skipped = self.detect_files_in_post(post)
-            skipped += post_skipped
+            skipped[0] += post_skipped
+
+            if self.INCLUDE_REGEX:
+                if not re.fullmatch(self.INCLUDE_REGEX, post['title']):
+                    skipped[1] += len(post_files)
+                    continue
+            elif self.EXCLUDE_REGEX:
+                if re.fullmatch(self.EXCLUDE_REGEX, post['title']):
+                    skipped[1] += len(post_files)
+                    continue
 
             for file in post_files:
                 hash = get_hash_from_url(file.url)
 
                 if hash in self.hashes:
-                    skipped += 1
+                    skipped[2] += 1
                     continue
 
                 if not file.published:
@@ -177,7 +196,7 @@ class Creator:
                 files.append(file)
                 self.hashes.add(hash)
 
-        logger.info(f"Found {len(files) + skipped} files ({skipped} skipped)")
+        logger.info(f"Found {len(files) + sum(skipped)} files ({sum(skipped)} skipped - {skipped[0]} AE - {skipped[1]} RE - {skipped[2]} EX)")
         if len(files) == 0:
             logger.info("Skipping...")
             time.sleep(3)

@@ -45,8 +45,8 @@ def main():
     cookie = os.getenv('SESSION_COOKIE', '')
     creator_url_filepath = os.getenv('CREATOR_URL_FILE', '')
     log_level = os.getenv('LOG_LEVEL', 'INFO')
-    download_all = bool(os.getenv('DOWNLOAD_ALL', 'true').lower())
-    sort_by_recency = bool(os.getenv('SORT_BY_RECENCY', 'true').lower())
+    download_all = bool(os.getenv('DOWNLOAD_ALL', 'false').lower())
+    sort_by_recency = bool(os.getenv('SORT_BY_RECENCY', 'false').lower())
 
     os.makedirs('/config', exist_ok=True)
     os.makedirs('/config/logs', exist_ok=True)
@@ -64,7 +64,7 @@ def main():
 
     init_network(cookie)
 
-    creators_info = set()
+    creators_info = []
 
     if creator_url_filepath:
         if not os.path.exists(creator_url_filepath):
@@ -74,20 +74,19 @@ def main():
             creator_file.close()
 
         logger.info(f"Collecting creator data for creators in {creator_url_filepath}...")
-        creators_info = {(service, id) for service, id in get_creators_from_file(creator_url_filepath)}
+        creators_info = [(service, id) for service, id in get_creators_from_file(creator_url_filepath)]
         logger.info(f"Retrived {len(creators_info)} creators")
 
-    if not creator_url_filepath or download_all:
+    else:
         logger.info(f"Collecting creator data for favorite creators...")
-        creators_info = {(creator_data['service'], creator_data['id']) for creator_data in get_favorite_creators()}
+        creators_info = [(creator_data['service'], creator_data['id']) for creator_data in get_favorite_creators()]
         logger.info(f"Retrived {len(creators_info)} creators")
 
-    creators = [Creator(service, id) for service, id in creators_info]
+    #if sort_by_recency:
+        #creators = sorted(creators, key=lambda creator: creator.last_imported, reverse=True)
 
-    if sort_by_recency:
-        creators = sorted(creators, key=lambda creator: creator.last_imported, reverse=True)
-
-    for creator in creators:
+    for service, id in creators_info:
+        creator = Creator(service, id)
         creator.download()
 
 if __name__ == '__main__':

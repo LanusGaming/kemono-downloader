@@ -1,4 +1,4 @@
-import os, logging, shutil
+import os, logging, shutil, time
 from requests import HTTPError
 
 from .files import generate_hash
@@ -106,8 +106,8 @@ class File:
 
         shutil.move(temp_path, dest_path)
 
-        time = self.published + self.index
-        os.utime(dest_path, (time, time))
+        file_time = self.published + self.index
+        os.utime(dest_path, (file_time, file_time))
         os.utime(dest_folder, (self.published, self.published))
         logger.debug(f"Finished moving -> {dest_path}")
 

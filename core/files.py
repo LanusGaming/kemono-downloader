@@ -104,7 +104,7 @@ def un7z(filepath: str, directory: str, password: str):
 
 def extract(filepath: str, password: str) -> list[tuple[str, str]]:
     dir = os.path.splitext(filepath)[0]
-    temp_dir = f"{dir}_temp"
+    temp_dir = f"/temp/{generate_hash(filepath)}_temp"
 
     if os.path.exists(temp_dir):
         shutil.rmtree(temp_dir, ignore_errors=True)
@@ -121,9 +121,10 @@ def extract(filepath: str, password: str) -> list[tuple[str, str]]:
         if ext == '.7z':
             un7z(filepath, temp_dir, password)
 
-    finally:
+    except:
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
+        raise
     
     if os.path.exists(dir):
         shutil.rmtree(dir, ignore_errors=True)
