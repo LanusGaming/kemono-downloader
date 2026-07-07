@@ -55,6 +55,22 @@ Thumbs.db
 *.env
 docker-compose.override.yml
 
+# Local dev data (compose.yml bind mounts + native DATA_DIR/CONFIG_DIR/TEMP_DIR defaults)
+/data/
+/config/
+/temp/
+
+# SQLite (belt-and-suspenders in case DB_PATH is ever pointed elsewhere)
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Cython build artifacts (generated .c from .pyx; the built .so is already covered above)
+ext/*.c
+
 # Logs
 *.log
 logs/

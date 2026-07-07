@@ -1,11 +1,10 @@
 services:
   kemono-downloader:
-    image: lanusgaming/kemono-downloader:preview
+    image: git.patrick-dev.net/patrick/kemono-downloader:latest
     build: ./
     container_name: kemono-downloader
-    environment:
-      - SESSION_COOKIE=
-      - CREATOR_URL_FILE=
+    env_file:
+      - .env
     volumes:
       - ./temp:/temp
       - ./data:/data

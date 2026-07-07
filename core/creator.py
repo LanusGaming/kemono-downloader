@@ -1,27 +1,17 @@
 import os, logging, re
-from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .files import load_json, save_json, extract, is_archive, get_thread_lock, generate_hash
+from .files import extract, is_archive, get_thread_lock, generate_hash
 from .kemono import get_creator_data, get_all_posts_from_creator, get_post_data, get_file_data
 from .network import DOMAIN_CONFIG
 from .file import File
 from .utils import *
+from . import db
+from .db import DEFAULT_CREATOR_CONFIG
 
 logger = logging.getLogger("downloader")
 failure_logger = logging.getLogger("failed")
-
-DEFAULT_CREATOR_CONFIG = {
-    'INCLUDE_REGEX': '',
-    'EXCLUDE_REGEX': '',
-    'ALLOWED_EXTENSIONS': ['.jpg', '.jpeg', '.png', '.zip', '.mp4', '.gif', '.pdf', '.7z', '.mp3', '.wav', '.rar', '.mov', '.docx', '.jpe', '.webp'],
-    'ALLOWED_TYPES': ['attachment'],
-    'AUTO_UNZIP': True,
-    'KEEP_UNPACKED_ARCHIVES': True,
-    'KEEP_FAILED_ARCHIVES': False,
-    'ARCHIVE_PASSWORDS': [None]
-}
 
 class Creator:
     def __init__(self, service: str, id: str):
@@ -41,15 +31,8 @@ class Creator:
         logger.info(f"Loading hashes...")
         self.load_files()
     
-    def get_config_path(self) -> str:
-        return f"/config/creators/{self.id}/config.json"
-
     def load_config(self):
-        path = self.get_config_path()
-        if not os.path.exists(path):
-            save_json(DEFAULT_CREATOR_CONFIG, path)
-
-        config = load_json(path)
+        config = db.get_creator_config(self.service, self.id)
         creator_config = DEFAULT_CREATOR_CONFIG.copy()
 
         for entry in creator_config:
@@ -58,32 +41,22 @@ class Creator:
 
             self.__dict__[entry] = creator_config[entry]
 
-        save_json(creator_config, path)
+        db.save_creator_config(self.service, self.id, self.name, self.last_imported, creator_config)
 
         if self.INCLUDE_REGEX and self.EXCLUDE_REGEX:
             logger.info("Both INCLUDE_REGEX and EXCLUDE_REGEX are set - EXCLUDE_REGEX will be ignored")
 
-    def get_files_path(self) -> str:
-        return f"/config/creators/{self.id}/files.json"
-    
     def load_files(self):
-        self.files = load_json(self.get_files_path()) or {}
-        if len(self.files) == 0:
+        total, archive_count = db.count_files_for_creator(self.service, self.id)
+        if total == 0:
             logger.debug(f"Couldnt load any existing files")
 
-        archive_file_count = 0
-        for file_id in self.files:
-            if self.files[file_id]['type'] == 'archive':
-                archive_file_count += 1
+        logger.info(f"Found {total} existing files ({archive_count} from archives)")
 
-        logger.info(f"Found {len(self.files)} existing files ({archive_file_count} from archives)")
-
-        self.hashes = {get_hash_from_url(self.files[id]['url']) for id in self.files}
+        self.hashes = db.get_creator_hashes(self.service, self.id)
 
     def save_file(self, file: File):
-        files = load_json(self.get_files_path()) or {}
-        files[file.get_id()] = file.get_data()
-        save_json(files, self.get_files_path())
+        file.id = db.insert_file(file)
     
     def detect_files_in_post(self, post: dict) -> tuple[list[File], int]:
         file_datas = []
@@ -136,7 +109,7 @@ class Creator:
                 skipped += 1
                 continue
 
-            file_url = urljoin(DOMAIN_CONFIG['base_url'], file_path).split('f=')[0]
+            file_url = (DOMAIN_CONFIG['file_base_url'] + file_path).split('f=')[0]
             hash = get_hash_from_url(file_url)
             
             if not file_name:
@@ -184,6 +157,7 @@ class Creator:
                     skipped[1] += len(post_files)
                     continue
 
+            post_has_new_files = False
             for file in post_files:
                 hash = get_hash_from_url(file.url)
 
@@ -207,6 +181,11 @@ class Creator:
 
                 files.append(file)
                 self.hashes.add(hash)
+                post_has_new_files = True
+
+            if post_has_new_files:
+                db.upsert_post(self.service, self.id, post['id'], sanitize_filename(post['title']),
+                                get_post_time(post['published']) if post['published'] else None)
 
         logger.info(f"Found {len(files) + sum(skipped)} files ({sum(skipped)} skipped - {skipped[0]} AE - {skipped[1]} RE - {skipped[2]} EX)")
         if len(files) == 0:
@@ -221,22 +200,26 @@ class Creator:
         logger.info(f"Downloaded {success}/{len(files)} files")
         time.sleep(5)
     
-    def download_all_files(self, files: list[File], max_workers: int = 5) -> dict[tuple[str, str], bool]:
+    def download_all_files(self, files: list[File], max_workers: int = 5) -> dict[File, bool]:
         results = {}
         with ThreadPoolExecutor(max_workers=max_workers) as exe:
-            futures = {exe.submit(self.download_file, file): file.get_id() for file in files}
+            futures = {exe.submit(self.download_file, file): file for file in files}
 
             for fut in as_completed(futures):
-                file_id = futures[fut]
-                results[file_id] = fut.result()
+                file = futures[fut]
+                results[file] = fut.result()
 
         return results
-    
+
     def download_file(self, file: File) -> bool:
         if not file.download():
             logger.error(f"Download failed -> {file.get_dest_download_path()}")
             failure_logger.error(file.get_data())
             return False
+
+        logger.debug(f"Saving file data... -> {file.path}")
+        with get_thread_lock():
+            self.save_file(file)
 
         if self.AUTO_UNZIP and is_archive(file.path):
             logger.info(f"Extracting... -> {file.path}")
@@ -244,15 +227,13 @@ class Creator:
             if not self.unpack(file):
                 logger.error(f"Extraction failed -> {file.path}")
                 failure_logger.error(file.get_data())
+                with get_thread_lock():
+                    db.delete_file(file.id)
                 os.remove(file.path)
                 return False
 
             if not self.KEEP_UNPACKED_ARCHIVES:
                 os.remove(file.path)
-        
-        logger.debug(f"Saving file data... -> {file.path}")
-        with get_thread_lock():
-            self.save_file(file)
 
         return True
 
@@ -285,10 +266,7 @@ class Creator:
                     self.ARCHIVE_PASSWORDS.append(password)
 
                     with get_thread_lock():
-                        path = self.get_config_path()
-                        config = load_json(path)
-                        config['ARCHIVE_PASSWORDS'] = self.ARCHIVE_PASSWORDS
-                        save_json(config, path)
+                        db.update_archive_passwords(self.service, self.id, self.ARCHIVE_PASSWORDS)
 
                 success = True
                 break
@@ -305,8 +283,6 @@ class Creator:
         if not success:
             logger.warning(f"Could not find matching password -> {file.path}")
             return False
-        
-        file.archive_files = []
 
         logger.debug(f"Renaming archive files... -> {file.path}")
         archive_folder = os.path.splitext(file.path)[0]
@@ -332,12 +308,11 @@ class Creator:
             archive_file.name = archive_file_name
             archive_file.hash = archive_file_hash
             archive_file.type = 'archive'
-            archive_file.archive_files = [file.get_id()]
+            archive_file.parent_archive_id = file.id
 
             with get_thread_lock():
                 self.save_file(archive_file)
 
-            file.archive_files.append(archive_file.get_id())
             self.hashes.add(archive_file_hash)
             
         os.utime(archive_folder, (file.published, file.published))

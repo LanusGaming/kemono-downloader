@@ -2,21 +2,24 @@ import os, operator, logging
 
 from ..creator import Creator
 from ..files import generate_hash
+from ..paths import DATA_DIR
+from .. import db
 
 logger = logging.getLogger("downloader")
 
 def deduplicate(creator: Creator):
 
-    creator_files = {creator.files[file_id]['path']: creator.files[file_id]['hash'] for file_id in creator.files}
-    file_types = {creator.files[file_id]['path']: creator.files[file_id]['type'] for file_id in creator.files}
+    rows = db.get_files_for_creator(creator.service, creator.id)
+    creator_files = {row['path']: row['hash'] for row in rows}
+    file_types = {row['path']: row['type'] for row in rows}
 
     folder_path = f"/{creator.name}_{creator.service}_{creator.id}"
-    if not os.path.exists('/data' + folder_path):
+    if not os.path.exists(DATA_DIR + folder_path):
         logger.info(f"No files for creator found")
         return
-    
+
     logger.info(f"Searching files...")
-    files = sort_files(recursive_scan('/data' + folder_path, creator_files, file_types))
+    files = sort_files(recursive_scan(DATA_DIR + folder_path, creator_files, file_types))
 
     hashes = []
     duplicates = 0
