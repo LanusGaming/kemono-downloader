@@ -1,6 +1,6 @@
 services:
   kemono-downloader:
-    image: lanusgaming/kemono-downloader:preview
+    image: git.patrick-dev.net/patrick/kemono-downloader:latest
     build: ./
     container_name: kemono-downloader
     env_file:
