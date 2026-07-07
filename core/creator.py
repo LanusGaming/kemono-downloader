@@ -1,5 +1,4 @@
 import os, logging, re
-from urllib.parse import urljoin
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -110,7 +109,7 @@ class Creator:
                 skipped += 1
                 continue
 
-            file_url = urljoin(DOMAIN_CONFIG['base_url'], file_path).split('f=')[0]
+            file_url = (DOMAIN_CONFIG['file_base_url'] + file_path).split('f=')[0]
             hash = get_hash_from_url(file_url)
             
             if not file_name:
