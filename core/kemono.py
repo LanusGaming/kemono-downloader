@@ -1,7 +1,10 @@
 import json, time, logging
-from .network import call_api
+from .network import call_api, call_api_action
 
 logger = logging.getLogger("downloader")
+
+def add_favorite_creator(service: str, creator_id: str) -> bool:
+    return call_api_action(f"favorites/creator/{service}/{creator_id}", method='POST')
 
 def get_favorite_creators(timeout: int = 15, max_attempts: int = 7) -> list[dict]:
     response = call_api(f"account/favorites?type=artist", timeout, max_attempts)

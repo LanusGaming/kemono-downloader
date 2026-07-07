@@ -97,3 +97,33 @@ def call_api(api_call: str, timeout: int = 15, max_attempts: int = 7, additional
 
     logger.debug(f"# API #\nFailed API call {url}")
     return None
+
+def call_api_action(api_call: str, method: str = 'POST', timeout: int = 15, max_attempts: int = 3) -> bool:
+    """For write-style endpoints (favorite/unfavorite, etc.) that return no useful body -
+    success is judged by status code alone, unlike call_api()'s text-returning read path."""
+    url = f"{DOMAIN_CONFIG['api_base']}/{api_call}"
+    headers = HEADERS.copy()
+    safe_headers = {k: ('***redacted***' if k.lower() == 'cookie' else v) for k, v in headers.items()}
+
+    for attempt in range(max_attempts):
+        try:
+            logger.debug(f"# API #\n{method} {url} with headers {safe_headers} and timeout {timeout}s")
+            response = SESSION.request(method, url, headers=headers, timeout=timeout)
+            response.raise_for_status()
+            logger.debug(f"# API #\n{method} succeeded at {url} ({response.status_code})")
+            return True
+
+        except Exception as e:
+            if isinstance(e, requests.HTTPError) and e.response.status_code == 404:
+                logger.debug(f"# API #\nCould not find {url}")
+                return False
+
+            logger.debug(f"# API #\nAttempt failed ({attempt+1}/{max_attempts}) at {url}\n[Exception]\n{e}")
+
+            if attempt < max_attempts-1:
+                wait_time = 2**attempt
+                logger.debug(f"# API #\nTrying again in {wait_time}s at {url}")
+                time.sleep(wait_time)
+
+    logger.debug(f"# API #\nFailed API call {url}")
+    return False

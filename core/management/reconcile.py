@@ -3,12 +3,15 @@ import os, logging
 from ..creator import Creator
 from ..file import File
 from ..files import generate_hash, is_archive
-from ..kemono import get_all_posts_from_creator
+from ..kemono import get_all_posts_from_creator, add_favorite_creator
 from ..utils import get_hash_from_url
 from ..paths import DATA_DIR
+from ..network import DOMAIN_CONFIG
 from .. import db
 
 logger = logging.getLogger("downloader")
+
+ADD_FAVORITES = os.getenv('RECONCILE_ADD_FAVORITES', 'false').lower() == 'true'
 
 def reconcile(creator: Creator):
     folder_path = f"{DATA_DIR}/{creator.name}_{creator.service}_{creator.id}"
@@ -124,3 +127,9 @@ def reconcile(creator: Creator):
         f"{counts['straggler']} stragglers, {counts['already_recorded']} already recorded, "
         f"{counts['skipped']} skipped (non-content files)"
     )
+
+    if ADD_FAVORITES:
+        if add_favorite_creator(creator.service, creator.id):
+            logger.info(f"Added {creator.name} to favorites on {DOMAIN_CONFIG['domain']}")
+        else:
+            logger.warning(f"Could not add {creator.name} to favorites on {DOMAIN_CONFIG['domain']}")
