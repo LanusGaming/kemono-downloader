@@ -5,12 +5,13 @@ from ..file import File
 from ..files import generate_hash, is_archive
 from ..kemono import get_all_posts_from_creator
 from ..utils import get_hash_from_url
+from ..paths import DATA_DIR
 from .. import db
 
 logger = logging.getLogger("downloader")
 
 def reconcile(creator: Creator):
-    folder_path = f"/data/{creator.name}_{creator.service}_{creator.id}"
+    folder_path = f"{DATA_DIR}/{creator.name}_{creator.service}_{creator.id}"
     if not os.path.exists(folder_path):
         logger.info(f"No files on disk for this creator")
         return

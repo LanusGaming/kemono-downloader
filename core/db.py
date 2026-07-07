@@ -1,6 +1,8 @@
 import sqlite3, json, os
 
-DB_PATH = '/config/kemono.db'
+from .paths import CONFIG_DIR
+
+DB_PATH = os.path.join(CONFIG_DIR, 'kemono.db')
 
 _connection = None
 

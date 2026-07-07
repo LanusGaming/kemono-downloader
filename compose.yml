@@ -3,9 +3,8 @@ services:
     image: lanusgaming/kemono-downloader:preview
     build: ./
     container_name: kemono-downloader
-    environment:
-      - SESSION_COOKIE=
-      - CREATOR_URL_FILE=
+    env_file:
+      - .env
     volumes:
       - ./temp:/temp
       - ./data:/data

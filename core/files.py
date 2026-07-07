@@ -3,6 +3,7 @@ from py7zr.exceptions import PasswordRequired
 from _lzma import LZMAError
 
 from .utils import sanitize_filename
+from .paths import TEMP_DIR
 from dezip import _ZipDecrypter_C
 setattr(zipfile, '_ZipDecrypter', _ZipDecrypter_C)
 
@@ -105,7 +106,7 @@ def un7z(filepath: str, directory: str, password: str):
 
 def extract(filepath: str, password: str) -> list[tuple[str, str]]:
     dir = os.path.splitext(filepath)[0]
-    temp_dir = f"/temp/{generate_hash(filepath)}_temp"
+    temp_dir = f"{TEMP_DIR}/{generate_hash(filepath)}_temp"
 
     if os.path.exists(temp_dir):
         shutil.rmtree(temp_dir, ignore_errors=True)

@@ -3,6 +3,7 @@ from requests import HTTPError
 
 from .files import generate_hash
 from .network import SESSION, HEADERS
+from .paths import DATA_DIR, TEMP_DIR
 from .utils import *
 
 logger = logging.getLogger("downloader")
@@ -50,10 +51,10 @@ class File:
         return f"{self.creator_id}_{self.post_id}_{self.get_filename()}"
     
     def get_temp_download_path(self) -> str:
-        return f"/temp/{self.get_temp_filename()}"
+        return f"{TEMP_DIR}/{self.get_temp_filename()}"
 
     def get_dest_download_path(self) -> str:
-        return '/data' + os.path.join(self.get_folder_path(), self.get_filename())
+        return DATA_DIR + os.path.join(self.get_folder_path(), self.get_filename())
     
     def download(self, max_attempts: int = 60) -> bool:
         temp_path = self.get_temp_download_path()

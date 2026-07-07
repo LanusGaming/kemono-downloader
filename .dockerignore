@@ -1,0 +1,17 @@
+.git
+.gitea
+.gitattributes
+.gitignore
+.vscode
+.env
+.env.example
+Readme.md
+compose.yml
+data/
+config/
+temp/
+__pycache__/
+*.pyc
+ext/*.c
+ext/*.so
+ext/build/

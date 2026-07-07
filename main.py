@@ -1,4 +1,5 @@
 import logging, os, shutil, time, sys
+from core.paths import DATA_DIR, CONFIG_DIR, TEMP_DIR
 from core.network import init_network
 from core.kemono import get_favorite_creators
 from core.creator import Creator
@@ -29,7 +30,7 @@ def setup_loggers(log_level: str):
     logger.addHandler(stdout_h)
 
     # Handler for the log file
-    file_h = logging.FileHandler(f"/config/logs/{time.strftime(date_format)}.log", mode='w', encoding="utf-8")
+    file_h = logging.FileHandler(f"{CONFIG_DIR}/logs/{time.strftime(date_format)}.log", mode='w', encoding="utf-8")
     file_h.setLevel(logging.DEBUG)
     file_h.setFormatter(logging.Formatter(log_format, date_format))
     logger.addHandler(file_h)
@@ -37,7 +38,7 @@ def setup_loggers(log_level: str):
     failure_logger.setLevel(logging.DEBUG)
 
     # Handler for the failed downloads
-    failure_h = logging.FileHandler(f"/config/failed/{time.strftime(date_format)}.json", mode='w', encoding="utf-8")
+    failure_h = logging.FileHandler(f"{CONFIG_DIR}/failed/{time.strftime(date_format)}.json", mode='w', encoding="utf-8")
     failure_h.setLevel(logging.DEBUG)
     failure_h.setFormatter(logging.Formatter("%(message)s"))
     failure_logger.addHandler(failure_h)
@@ -50,13 +51,13 @@ def main():
     sort_by_recency = os.getenv('SORT_BY_RECENCY', 'false').lower() == 'true'
     reconcile_mode = os.getenv('RECONCILE', 'false').lower() == 'true'
 
-    os.makedirs('/config', exist_ok=True)
-    os.makedirs('/config/logs', exist_ok=True)
-    os.makedirs('/config/failed', exist_ok=True)
-    os.makedirs('/data', exist_ok=True)
-    if os.path.exists('/temp'):
-        shutil.rmtree('/temp', ignore_errors=True)
-    os.makedirs('/temp', exist_ok=True)
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    os.makedirs(f"{CONFIG_DIR}/logs", exist_ok=True)
+    os.makedirs(f"{CONFIG_DIR}/failed", exist_ok=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if os.path.exists(TEMP_DIR):
+        shutil.rmtree(TEMP_DIR, ignore_errors=True)
+    os.makedirs(TEMP_DIR, exist_ok=True)
 
     setup_loggers(log_level)
 
