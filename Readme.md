@@ -16,7 +16,7 @@ a host cron job, Unraid User Scripts, etc. - triggers it periodically). Set `CRO
 
 To also kick off an Immich album-creator run right after a download run finishes, set
 `TRIGGER_ALBUM_CREATOR=true`. This expects the sibling
-[immich-album-webhook](https://git.patrick-dev.net/patrick/immich-album-webhook) project to be
+[immich-album-creator-webhook](https://git.patrick-dev.net/patrick/immich-album-creator-webhook) project to be
 running - a thin wrapper around
 [immich-folder-album-creator](https://github.com/Salvoxia/immich-folder-album-creator) that idles
 until triggered over plain HTTP, instead of needing its own cron schedule or a container that
@@ -41,7 +41,7 @@ networks:
     external: true
 ```
 
-...and the equivalent is already wired into immich-album-webhook's own `compose.yml`. Set
+...and the equivalent is already wired into immich-album-creator-webhook's own `compose.yml`. Set
 `ALBUM_CREATOR_WEBHOOK_URL` in `.env` if you rename that service away from the `album-creator`
 default.
 
