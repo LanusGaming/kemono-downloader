@@ -95,11 +95,15 @@ def main():
         #creators = sorted(creators, key=lambda creator: creator.last_imported, reverse=True)
 
     for service, id in creators_info:
-        creator = Creator(service, id)
-        if reconcile_mode:
-            reconcile(creator)
-        else:
-            creator.download()
+        try:
+            creator = Creator(service, id)
+            if reconcile_mode:
+                reconcile(creator)
+            else:
+                creator.download()
+        except Exception as e:
+            logger.error(f"Failed processing creator {service}/{id}: {e}")
+            continue
 
 if __name__ == '__main__':
     main()
