@@ -3,7 +3,7 @@ from py7zr.exceptions import PasswordRequired
 from _lzma import LZMAError
 
 from .utils import sanitize_filename
-from .paths import TEMP_DIR
+from .paths import TEMP_DIR, DATA_DIR
 from dezip import _ZipDecrypter_C
 setattr(zipfile, '_ZipDecrypter', _ZipDecrypter_C)
 
@@ -172,6 +172,34 @@ def get_creators_from_file(filepath: str) -> list[tuple[str]]:
                 continue
 
             service, creator_id = parts[-3], parts[-1]
+
+            creators.append((service, creator_id))
+
+    return creators
+
+# Matches the folder-naming convention from File.get_folder_path(): {name}_{service}_{id}
+KNOWN_SERVICES = {'patreon', 'fanbox', 'fantia', 'boosty', 'gumroad', 'subscribestar', 'dlsite'}
+
+def get_creators_from_data_dir() -> list[tuple[str, str]]:
+    if not os.path.exists(DATA_DIR):
+        return []
+
+    creators = []
+
+    with os.scandir(DATA_DIR) as entries:
+        for entry in entries:
+            if not entry.is_dir():
+                continue
+
+            parts = entry.name.split('_')
+            if len(parts) < 3:
+                continue
+
+            creator_id = parts[-1]
+            service = parts[-2]
+
+            if not creator_id.isdigit() or service not in KNOWN_SERVICES:
+                continue
 
             creators.append((service, creator_id))
 

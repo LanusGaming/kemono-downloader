@@ -3,7 +3,7 @@ from core.paths import DATA_DIR, CONFIG_DIR, TEMP_DIR
 from core.network import init_network
 from core.kemono import get_favorite_creators
 from core.creator import Creator
-from core.files import get_creators_from_file
+from core.files import get_creators_from_file, get_creators_from_data_dir
 from core.management.cleanup import cleanup
 from core.management.deduplicate import deduplicate
 from core.management.reconcile import reconcile
@@ -50,6 +50,7 @@ def main():
     download_all = os.getenv('DOWNLOAD_ALL', 'false').lower() == 'true'
     sort_by_recency = os.getenv('SORT_BY_RECENCY', 'false').lower() == 'true'
     reconcile_mode = os.getenv('RECONCILE', 'false').lower() == 'true'
+    creators_from_data = os.getenv('CREATORS_FROM_DATA', 'false').lower() == 'true'
 
     os.makedirs(CONFIG_DIR, exist_ok=True)
     os.makedirs(f"{CONFIG_DIR}/logs", exist_ok=True)
@@ -69,7 +70,12 @@ def main():
 
     creators_info = []
 
-    if creator_url_filepath:
+    if creators_from_data:
+        logger.info(f"Discovering creators from {DATA_DIR}...")
+        creators_info = get_creators_from_data_dir()
+        logger.info(f"Discovered {len(creators_info)} creators")
+
+    elif creator_url_filepath:
         if not os.path.exists(creator_url_filepath):
             logger.warning(f"File does not exist: {creator_url_filepath}")
             logger.info("Creating...")
