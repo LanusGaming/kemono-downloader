@@ -7,6 +7,7 @@ from core.files import get_creators_from_file, get_creators_from_data_dir
 from core.management.cleanup import cleanup
 from core.management.deduplicate import deduplicate
 from core.management.reconcile import reconcile
+from core.management.album_creator import trigger_album_creator
 
 logger = logging.getLogger("downloader")
 failure_logger = logging.getLogger("failed")
@@ -51,6 +52,8 @@ def main():
     sort_by_recency = os.getenv('SORT_BY_RECENCY', 'false').lower() == 'true'
     reconcile_mode = os.getenv('RECONCILE', 'false').lower() == 'true'
     creators_from_data = os.getenv('CREATORS_FROM_DATA', 'false').lower() == 'true'
+    trigger_album_creator_enabled = os.getenv('TRIGGER_ALBUM_CREATOR', 'false').lower() == 'true'
+    album_creator_webhook_url = os.getenv('ALBUM_CREATOR_WEBHOOK_URL', 'http://album-creator:8080/run')
 
     os.makedirs(CONFIG_DIR, exist_ok=True)
     os.makedirs(f"{CONFIG_DIR}/logs", exist_ok=True)
@@ -104,6 +107,9 @@ def main():
         except Exception as e:
             logger.error(f"Failed processing creator {service}/{id}: {e}")
             continue
+
+    if trigger_album_creator_enabled:
+        trigger_album_creator(album_creator_webhook_url)
 
 if __name__ == '__main__':
     main()

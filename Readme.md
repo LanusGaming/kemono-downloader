@@ -7,6 +7,44 @@ This project is based almost entirely on the open source project <https://github
 
 ### Not ready for use
 
+## Scheduling & triggering other containers
+
+By default the container runs `main.py` once and exits (for setups where something external -
+a host cron job, Unraid User Scripts, etc. - triggers it periodically). Set `CRON_EXPRESSION`
+(see `.env.example`) to have the container schedule itself instead, via
+[supercronic](https://github.com/aptible/supercronic) - no external scheduler needed.
+
+To also kick off an Immich album-creator run right after a download run finishes, set
+`TRIGGER_ALBUM_CREATOR=true`. This expects the sibling
+[immich-album-webhook](https://git.patrick-dev.net/patrick/immich-album-webhook) project to be
+running - a thin wrapper around
+[immich-folder-album-creator](https://github.com/Salvoxia/immich-folder-album-creator) that idles
+until triggered over plain HTTP, instead of needing its own cron schedule or a container that
+gets started/stopped from outside. No Docker socket/API access needed on either side.
+
+One-time setup to let the two containers reach each other (they're separate compose projects):
+
+```
+docker network create kemono-net
+```
+
+Then add a gitignored `docker-compose.override.yml` next to this repo's `compose.yml`:
+
+```yaml
+services:
+  kemono-downloader:
+    networks:
+      - kemono-net
+
+networks:
+  kemono-net:
+    external: true
+```
+
+...and the equivalent is already wired into immich-album-webhook's own `compose.yml`. Set
+`ALBUM_CREATOR_WEBHOOK_URL` in `.env` if you rename that service away from the `album-creator`
+default.
+
 ## Local development
 
 ### Testing with Docker (closest to production)
