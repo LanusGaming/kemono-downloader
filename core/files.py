@@ -27,6 +27,16 @@ def get_thread_lock():
     return get_thread_lock.lock
 
 # ARCHIVES
+class UnsafeArchivePath(Exception):
+    pass
+
+def _ensure_safe_archive_paths(names: list[str], directory: str):
+    abs_directory = os.path.abspath(directory)
+    for name in names:
+        target = os.path.abspath(os.path.join(abs_directory, name))
+        if target != abs_directory and not target.startswith(abs_directory + os.sep):
+            raise UnsafeArchivePath(f"Archive contains a path outside the extraction directory: {name}")
+
 def is_archive(filepath: str) -> bool:
     return os.path.splitext(filepath)[1].lower() in ['.7z', '.zip', '.rar']
 
@@ -53,14 +63,17 @@ def unzip(filepath: str, directory: str, password: str):
             if password:
                 archive.setpassword(bytes(password, 'utf-8'))
             archive.testzip()
+            _ensure_safe_archive_paths(archive.namelist(), directory)
             archive.extractall(directory)
 
+    except UnsafeArchivePath:
+        raise
     except RuntimeError:
         if password:
             raise RuntimeError(f"Password incorrect -> {password}")
         else:
             raise RuntimeError("Password may be required")
-    except:
+    except Exception:
         if os.path.exists(directory):
             shutil.rmtree(directory, ignore_errors=True)
 
@@ -69,8 +82,9 @@ def unzip(filepath: str, directory: str, password: str):
                 if password:
                     archive.setpassword(bytes(password, 'utf-8'))
                 archive.testzip()
+                _ensure_safe_archive_paths(archive.namelist(), directory)
                 archive.extractall(directory)
-                
+
         except RuntimeError:
             if password:
                 raise RuntimeError(f"Password incorrect -> {password}")
@@ -83,6 +97,7 @@ def unrar(filepath: str, directory: str, password: str):
             if password:
                 archive.setpassword(bytes(password, 'utf-8'))
             archive.testrar()
+            _ensure_safe_archive_paths(archive.namelist(), directory)
             archive.extractall(directory)
 
     except RuntimeError:
@@ -90,10 +105,11 @@ def unrar(filepath: str, directory: str, password: str):
             raise RuntimeError(f"Password incorrect -> {password}")
         else:
             raise RuntimeError("Password may be required")
-    
+
 def un7z(filepath: str, directory: str, password: str):
     try:
         with py7zr.SevenZipFile(filepath, mode='r', password=password) as archive:
+            _ensure_safe_archive_paths(archive.getnames(), directory)
             archive.extractall(path=directory)
 
     except (LZMAError, PasswordRequired, EOFError, struct.error, OSError, ValueError):

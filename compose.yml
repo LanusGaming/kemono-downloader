@@ -4,11 +4,9 @@ services:
     build: ./
     container_name: kemono-downloader
     environment:
-      - DEFAULT_DOMAIN=kemono.cr
       - SESSION_COOKIE=
       - CREATOR_URL_FILE=
     volumes:
-      - /temp:/temp
-      - /data:/data
-      - /config:/config
-      
+      - ./temp:/temp
+      - ./data:/data
+      - ./config:/config

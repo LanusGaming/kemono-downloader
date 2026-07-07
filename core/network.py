@@ -115,8 +115,3 @@ def call_api(api_call: str, timeout: int = 15, max_attempts: int = 7, additional
     
     logger.debug(f"# API #\nFailed API call {url}")
     return None
-
-#logging.basicConfig(level=logging.DEBUG)
-#call_api('fanbox/user/22601389/post/10778167')
-#DOMAIN_CONFIG['api_base'] = 'https://kemono.cr/api/v2'
-#call_api('file/7df314a1853013aaaed7c1c4c1cf153bbd8150a017c06f86fe6104391a619f9d')

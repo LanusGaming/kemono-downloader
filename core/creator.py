@@ -57,8 +57,11 @@ class Creator:
                 creator_config[entry] = config[entry]
 
             self.__dict__[entry] = creator_config[entry]
-        
+
         save_json(creator_config, path)
+
+        if self.INCLUDE_REGEX and self.EXCLUDE_REGEX:
+            logger.info("Both INCLUDE_REGEX and EXCLUDE_REGEX are set - EXCLUDE_REGEX will be ignored")
 
     def get_files_path(self) -> str:
         return f"/config/creators/{self.id}/files.json"
@@ -168,7 +171,7 @@ class Creator:
 
         files = []
         skipped = [0, 0, 0]
-        for post in posts:
+        for i, post in enumerate(posts):
             post_files, post_skipped = self.detect_files_in_post(post)
             skipped[0] += post_skipped
 
@@ -189,9 +192,18 @@ class Creator:
                     continue
 
                 if not file.published:
-                    index = posts.index(post) - 1
-                    post['published'] = posts[index]['published']
-                    file.published = get_post_time(post['published']) - 1000
+                    if i > 0:
+                        fallback_published = posts[i - 1]['published']
+                    elif i + 1 < len(posts):
+                        fallback_published = posts[i + 1]['published']
+                    else:
+                        fallback_published = None
+
+                    if fallback_published:
+                        post['published'] = fallback_published
+                        file.published = get_post_time(fallback_published) - 1000
+                    else:
+                        file.published = time.time()
 
                 files.append(file)
                 self.hashes.add(hash)

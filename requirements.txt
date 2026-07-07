@@ -1,8 +1,7 @@
-requests
-fake-useragent
-beautifulsoup4
-cython
-rarfile
-pyzipper
-py7zr
-mega.py
+requests~=2.34
+fake-useragent~=2.2
+beautifulsoup4~=4.15
+cython~=3.2
+rarfile~=4.2
+pyzipper~=0.4
+py7zr~=1.1

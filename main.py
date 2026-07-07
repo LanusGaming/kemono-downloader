@@ -45,8 +45,8 @@ def main():
     cookie = os.getenv('SESSION_COOKIE', '')
     creator_url_filepath = os.getenv('CREATOR_URL_FILE', '')
     log_level = os.getenv('LOG_LEVEL', 'INFO')
-    download_all = bool(os.getenv('DOWNLOAD_ALL', 'false').lower())
-    sort_by_recency = bool(os.getenv('SORT_BY_RECENCY', 'false').lower())
+    download_all = os.getenv('DOWNLOAD_ALL', 'false').lower() == 'true'
+    sort_by_recency = os.getenv('SORT_BY_RECENCY', 'false').lower() == 'true'
 
     os.makedirs('/config', exist_ok=True)
     os.makedirs('/config/logs', exist_ok=True)

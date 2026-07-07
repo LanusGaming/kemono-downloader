@@ -5,8 +5,7 @@ from setuptools import setup
 from Cython.Build import cythonize
 from Cython.Distutils import Extension
 
-extra_compile_args = ['-O3', '-ffast-math', '-fopenmp']
-extra_link_args = ['-fopenmp']
+extra_compile_args = ['-O3']
 
 lib_modules = []
 
@@ -14,8 +13,7 @@ lib_modules.append(
     Extension('dezip',
               ['dezip.pyx'],
               language='c',
-              extra_compile_args=extra_compile_args,
-              extra_link_args=extra_link_args,),
+              extra_compile_args=extra_compile_args,),
 )
 
 setup(
