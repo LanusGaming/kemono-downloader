@@ -8,6 +8,7 @@ from .utils import *
 logger = logging.getLogger("downloader")
 
 DEFAULT_FILE = {
+    'id': None,
     'creator_id': '',
     'creator_service': '',
     'creator_name': '',
@@ -21,7 +22,7 @@ DEFAULT_FILE = {
     'url': '',
     'type': '',
     'password': '',
-    'archive_files': []
+    'parent_archive_id': None
 }
 
 class File:
@@ -31,13 +32,7 @@ class File:
 
         for key in DEFAULT_FILE:
             self.__dict__[key] = default_data[key]
-    
-    def get_id(self) -> str:
-        if self.type == 'archive':
-            return f"{self.archive_files[0]}_{self.index}"
-        else:
-            return f"{self.post_id}_{self.index}"
-        
+
     def get_data(self) -> dict:
         data = DEFAULT_FILE.copy()
         for key in data:
@@ -56,7 +51,7 @@ class File:
     
     def get_temp_download_path(self) -> str:
         return f"/temp/{self.get_temp_filename()}"
-    
+
     def get_dest_download_path(self) -> str:
         return '/data' + os.path.join(self.get_folder_path(), self.get_filename())
     

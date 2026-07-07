@@ -5,6 +5,7 @@ from core.creator import Creator
 from core.files import get_creators_from_file
 from core.management.cleanup import cleanup
 from core.management.deduplicate import deduplicate
+from core.management.reconcile import reconcile
 
 logger = logging.getLogger("downloader")
 failure_logger = logging.getLogger("failed")
@@ -20,7 +21,7 @@ def setup_loggers(log_level: str):
     #logging.basicConfig(level=numeric_level, format=log_format, datefmt=date_format)
 
     logger.setLevel(logging.DEBUG)
-    
+
     # Handler for stdout
     stdout_h = logging.StreamHandler(sys.stdout)
     stdout_h.setLevel(numeric_level)
@@ -47,6 +48,7 @@ def main():
     log_level = os.getenv('LOG_LEVEL', 'INFO')
     download_all = os.getenv('DOWNLOAD_ALL', 'false').lower() == 'true'
     sort_by_recency = os.getenv('SORT_BY_RECENCY', 'false').lower() == 'true'
+    reconcile_mode = os.getenv('RECONCILE', 'false').lower() == 'true'
 
     os.makedirs('/config', exist_ok=True)
     os.makedirs('/config/logs', exist_ok=True)
@@ -87,7 +89,10 @@ def main():
 
     for service, id in creators_info:
         creator = Creator(service, id)
-        creator.download()
+        if reconcile_mode:
+            reconcile(creator)
+        else:
+            creator.download()
 
 if __name__ == '__main__':
     main()

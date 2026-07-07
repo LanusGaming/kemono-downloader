@@ -3,6 +3,7 @@ import os, logging
 from ..creator import Creator
 from ..file import File
 from ..files import is_archive, get_thread_lock
+from .. import db
 
 logger = logging.getLogger("downloader")
 
@@ -10,11 +11,11 @@ def cleanup(creator: Creator):
     files = []
 
     logger.info(f"Collecting archives...")
-    for file_id in creator.files:
-        if not is_archive(creator.files[file_id]['path']) or not os.path.exists(creator.files[file_id]['path']) or creator.files[file_id]['type'] == 'archive':
+    for file_row in db.get_files_for_creator(creator.service, creator.id):
+        if not is_archive(file_row['path']) or not os.path.exists(file_row['path']) or file_row['type'] == 'archive':
             continue
 
-        files.append(File(creator.files[file_id]))
+        files.append(File(file_row))
 
     logger.info(f"Found {len(files)} archives")
 
