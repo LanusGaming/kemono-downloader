@@ -8,10 +8,20 @@ from .network import DOMAIN_CONFIG
 from .file import File
 from .utils import *
 from . import db
-from .db import DEFAULT_CREATOR_CONFIG
 
 logger = logging.getLogger("downloader")
 failure_logger = logging.getLogger("failed")
+
+DEFAULT_CREATOR_CONFIG = {
+    'INCLUDE_REGEX': '',
+    'EXCLUDE_REGEX': '',
+    'ALLOWED_EXTENSIONS': ['.jpg', '.jpeg', '.png', '.zip', '.mp4', '.gif', '.pdf', '.7z', '.mp3', '.wav', '.rar', '.mov', '.docx', '.jpe', '.webp'],
+    'ALLOWED_TYPES': ['attachment'],
+    'AUTO_UNZIP': True,
+    'KEEP_UNPACKED_ARCHIVES': True,
+    'KEEP_FAILED_ARCHIVES': False,
+    'ARCHIVE_PASSWORDS': [None]
+}
 
 class Creator:
     def __init__(self, service: str, id: str):

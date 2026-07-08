@@ -54,17 +54,6 @@ CREATE INDEX IF NOT EXISTS idx_files_creator_hash ON files(creator_service, crea
 CREATE INDEX IF NOT EXISTS idx_files_post ON files(creator_service, creator_id, post_id);
 """
 
-DEFAULT_CREATOR_CONFIG = {
-    'INCLUDE_REGEX': '',
-    'EXCLUDE_REGEX': '',
-    'ALLOWED_EXTENSIONS': ['.jpg', '.jpeg', '.png', '.zip', '.mp4', '.gif', '.pdf', '.7z', '.mp3', '.wav', '.rar', '.mov', '.docx', '.jpe', '.webp'],
-    'ALLOWED_TYPES': ['attachment'],
-    'AUTO_UNZIP': True,
-    'KEEP_UNPACKED_ARCHIVES': True,
-    'KEEP_FAILED_ARCHIVES': False,
-    'ARCHIVE_PASSWORDS': [None]
-}
-
 def get_connection() -> sqlite3.Connection:
     global _connection
     if _connection is None:
