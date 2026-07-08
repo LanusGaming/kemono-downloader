@@ -4,15 +4,15 @@
 set -e
 
 if [ -z "$CRON_EXPRESSION" ]; then
-    exec python3 main.py
+    exec python3 download.py
 fi
 
 echo "CRON_EXPRESSION='$CRON_EXPRESSION' set - running on an internal schedule via supercronic"
 
 if [ "$(echo "$RUN_IMMEDIATELY" | tr '[:upper:]' '[:lower:]')" = "true" ]; then
     echo "RUN_IMMEDIATELY=true - running once now before the first scheduled run"
-    python3 main.py
+    python3 download.py
 fi
 
-echo "$CRON_EXPRESSION python3 main.py" > /tmp/crontab
+echo "$CRON_EXPRESSION python3 download.py" > /tmp/crontab
 exec supercronic /tmp/crontab

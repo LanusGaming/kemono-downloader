@@ -11,9 +11,7 @@ from .. import db
 
 logger = logging.getLogger("downloader")
 
-ADD_FAVORITES = os.getenv('RECONCILE_ADD_FAVORITES', 'false').lower() == 'true'
-
-def reconcile(creator: Creator):
+def reconcile(creator: Creator, add_favorites: bool = False):
     folder_path = f"{DATA_DIR}/{creator.name}_{creator.service}_{creator.id}"
     if not os.path.exists(folder_path):
         logger.info(f"No files on disk for this creator")
@@ -128,7 +126,7 @@ def reconcile(creator: Creator):
         f"{counts['skipped']} skipped (non-content files)"
     )
 
-    if ADD_FAVORITES:
+    if add_favorites:
         if add_favorite_creator(creator.service, creator.id):
             logger.info(f"Added {creator.name} to favorites on {DOMAIN_CONFIG['domain']}")
         else:

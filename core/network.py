@@ -32,6 +32,20 @@ DOMAIN_CONFIG = {
     'file_base_url': f"https://{FILE_DOMAIN}{FILE_PATH_PREFIX}"
 }
 
+def set_domain(domain: str, file_domain: str | None = None, file_path_prefix: str | None = None):
+    """Override DOMAIN_CONFIG for a single invocation (reconcile.py's --domain/--file-domain/
+    --file-path-prefix flags). Must be called before init_network(), which copies
+    DOMAIN_CONFIG['referer'] into HEADERS once - runtime.initialize() handles that ordering."""
+    global DOMAIN, FILE_DOMAIN, FILE_PATH_PREFIX
+    DOMAIN = domain
+    FILE_DOMAIN = file_domain or domain
+    FILE_PATH_PREFIX = file_path_prefix or ''
+    DOMAIN_CONFIG['domain'] = DOMAIN
+    DOMAIN_CONFIG['base_url'] = f"https://{DOMAIN}"
+    DOMAIN_CONFIG['api_base'] = f"https://{DOMAIN}/api/v1"
+    DOMAIN_CONFIG['referer'] = f"https://{DOMAIN}/"
+    DOMAIN_CONFIG['file_base_url'] = f"https://{FILE_DOMAIN}{FILE_PATH_PREFIX}"
+
 # Build a single session with pooling
 SESSION = requests.Session()
 

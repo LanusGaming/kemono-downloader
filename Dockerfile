@@ -45,9 +45,10 @@ COPY --from=builder /build/dezip.* ./
 COPY --from=builder /build/supercronic-linux-amd64 /usr/local/bin/supercronic
 
 COPY core ./core
-COPY main.py ./
+COPY runtime.py download.py reconcile.py ./
 COPY entrypoint.sh ./
-RUN chmod +x entrypoint.sh
+RUN chmod +x entrypoint.sh download.py reconcile.py \
+ && ln -s /downloader/reconcile.py /usr/local/bin/reconcile
 
 ENV PYTHONPATH=/downloader
 
