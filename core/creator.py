@@ -288,12 +288,18 @@ class Creator:
         archive_folder = os.path.splitext(file.path)[0]
         for archive_file_path, archive_file_name in files:
             archive_file_hash = generate_hash(archive_file_path)
+            wrong_ext = os.path.splitext(archive_file_path)[1] not in self.ALLOWED_EXTENSIONS
 
-            if archive_file_hash in self.hashes or not os.path.splitext(archive_file_path)[1] in self.ALLOWED_EXTENSIONS:
+            with get_thread_lock():
+                duplicate = archive_file_hash in self.hashes
+                if not duplicate and not wrong_ext:
+                    self.hashes.add(archive_file_hash)
+
+            if duplicate or wrong_ext:
                 if os.path.exists(archive_file_path):
                     os.remove(archive_file_path)
                 continue
-            
+
             archive_file_index = os.path.splitext(os.path.basename(archive_file_path))[0]
             new_archive_file_name = f"{archive_file_index}_{archive_file_name}"
             new_archive_file_path = f"{archive_folder}/{file.index:03d}_{new_archive_file_name}"
@@ -313,8 +319,6 @@ class Creator:
             with get_thread_lock():
                 self.save_file(archive_file)
 
-            self.hashes.add(archive_file_hash)
-            
         os.utime(archive_folder, (file.published, file.published))
 
         return True
