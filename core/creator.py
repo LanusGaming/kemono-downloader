@@ -153,18 +153,18 @@ class Creator:
         logger.info("Detecting files in posts...")
 
         files = []
-        skipped = [0, 0, 0]
+        skipped = {"attachments": 0, "regex": 0, "existing": 0}
         for i, post in enumerate(posts):
             post_files, post_skipped = self.detect_files_in_post(post)
-            skipped[0] += post_skipped
+            skipped["attachments"] += post_skipped
 
             if self.INCLUDE_REGEX:
                 if not re.fullmatch(self.INCLUDE_REGEX, post['title']):
-                    skipped[1] += len(post_files)
+                    skipped["regex"] += len(post_files)
                     continue
             elif self.EXCLUDE_REGEX:
                 if re.fullmatch(self.EXCLUDE_REGEX, post['title']):
-                    skipped[1] += len(post_files)
+                    skipped["regex"] += len(post_files)
                     continue
 
             post_has_new_files = False
@@ -172,7 +172,7 @@ class Creator:
                 hash = get_hash_from_url(file.url)
 
                 if hash in self.hashes:
-                    skipped[2] += 1
+                    skipped["existing"] += 1
                     continue
 
                 if not file.published:
@@ -197,7 +197,7 @@ class Creator:
                 db.upsert_post(self.service, self.id, post['id'], sanitize_filename(post['title']),
                                 get_post_time(post['published']) if post['published'] else None)
 
-        logger.info(f"Found {len(files) + sum(skipped)} files ({sum(skipped)} skipped - {skipped[0]} AE - {skipped[1]} RE - {skipped[2]} EX)")
+        logger.info(f"Found {len(files) + sum(skipped.values())} files ({sum(skipped.values())} skipped - {skipped['attachments']} ATTACH - {skipped['regex']} REGEX - {skipped['existing']} EXIST)")
         if len(files) == 0:
             logger.info("Skipping...")
             time.sleep(3)
