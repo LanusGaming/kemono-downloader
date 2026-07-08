@@ -12,7 +12,18 @@ from core.management.album_creator import trigger_album_creator
 logger = logging.getLogger("downloader")
 failure_logger = logging.getLogger("failed")
 
-def setup_loggers(log_level: str):
+def prune_old_logs(retention_days: int):
+    if retention_days <= 0:
+        return
+
+    cutoff = time.time() - retention_days * 86400
+    for dirpath in (f"{CONFIG_DIR}/logs", f"{CONFIG_DIR}/failed"):
+        for filename in os.listdir(dirpath):
+            filepath = os.path.join(dirpath, filename)
+            if os.path.isfile(filepath) and os.path.getmtime(filepath) < cutoff:
+                os.remove(filepath)
+
+def setup_loggers(log_level: str, log_retention_days: int):
     log_format = "[%(asctime)s] %(levelname)s: %(message)s"
     date_format = '%y-%m-%d %H:%M:%S'
 
@@ -21,6 +32,8 @@ def setup_loggers(log_level: str):
         raise ValueError('Invalid log level: %s' % log_level)
 
     #logging.basicConfig(level=numeric_level, format=log_format, datefmt=date_format)
+
+    prune_old_logs(log_retention_days)
 
     logger.setLevel(logging.DEBUG)
 
@@ -48,6 +61,7 @@ def main():
     cookie = os.getenv('SESSION_COOKIE', '')
     creator_url_filepath = os.getenv('CREATOR_URL_FILE', '')
     log_level = os.getenv('LOG_LEVEL', 'INFO')
+    log_retention_days = int(os.getenv('LOG_RETENTION_DAYS', '14'))
     download_all = os.getenv('DOWNLOAD_ALL', 'false').lower() == 'true'
     sort_by_recency = os.getenv('SORT_BY_RECENCY', 'false').lower() == 'true'
     reconcile_mode = os.getenv('RECONCILE', 'false').lower() == 'true'
@@ -63,7 +77,7 @@ def main():
         shutil.rmtree(TEMP_DIR, ignore_errors=True)
     os.makedirs(TEMP_DIR, exist_ok=True)
 
-    setup_loggers(log_level)
+    setup_loggers(log_level, log_retention_days)
 
     if cookie == '':
         logger.critical("No session cookie has been provided")
