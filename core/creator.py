@@ -256,9 +256,12 @@ class Creator:
             if not self.unpack(file):
                 logger.error(f"Extraction failed -> {file.path}")
                 failure_logger.error(file.get_data())
-                with get_thread_lock():
-                    db.delete_file(file.id)
-                os.remove(file.path)
+                if self.KEEP_FAILED_ARCHIVES:
+                    logger.info(f"Keeping failed archive (KEEP_FAILED_ARCHIVES=true) -> {file.path}")
+                else:
+                    with get_thread_lock():
+                        db.delete_file(file.id)
+                    os.remove(file.path)
                 return False
 
             if not self.KEEP_UNPACKED_ARCHIVES:
