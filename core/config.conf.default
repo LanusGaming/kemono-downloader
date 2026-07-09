@@ -30,3 +30,10 @@ TRIGGER_ALBUM_CREATOR=false
 
 # Webhook URL to call when TRIGGER_ALBUM_CREATOR is enabled
 ALBUM_CREATOR_WEBHOOK_URL=http://album-creator:8080/run
+
+# Max attempts per file download before giving up (a 503 response always skips straight to
+# giving up, regardless of this value - see core/file.py)
+DOWNLOAD_MAX_ATTEMPTS=60
+
+# Seconds to wait between download retry attempts
+DOWNLOAD_RETRY_DELAY=1

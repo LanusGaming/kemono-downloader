@@ -17,7 +17,7 @@ SCHEMA = {
     'DOMAIN': str, 'FILE_DOMAIN': str, 'FILE_PATH_PREFIX': str, 'CREATOR_URL_FILE': str,
     'CREATORS_FROM_DATA': bool, 'LOG_LEVEL': str, 'LOG_RETENTION_DAYS': int,
     'CRON_EXPRESSION': str, 'RUN_IMMEDIATELY': bool, 'TRIGGER_ALBUM_CREATOR': bool,
-    'ALBUM_CREATOR_WEBHOOK_URL': str,
+    'ALBUM_CREATOR_WEBHOOK_URL': str, 'DOWNLOAD_MAX_ATTEMPTS': int, 'DOWNLOAD_RETRY_DELAY': int,
 }
 
 DOMAIN = 'kemono.cr'
@@ -31,6 +31,8 @@ CRON_EXPRESSION = ''
 RUN_IMMEDIATELY = False
 TRIGGER_ALBUM_CREATOR = False
 ALBUM_CREATOR_WEBHOOK_URL = 'http://album-creator:8080/run'
+DOWNLOAD_MAX_ATTEMPTS = 60
+DOWNLOAD_RETRY_DELAY = 1
 
 def _prune_old_logs(retention_days: int):
     if retention_days <= 0:
@@ -75,7 +77,8 @@ def load():
     env var, as part of the automatic init below (an env var only changes on a restart anyway)."""
     global DOMAIN, FILE_DOMAIN, FILE_PATH_PREFIX, CREATOR_URL_FILE, CREATORS_FROM_DATA, \
            LOG_LEVEL, LOG_RETENTION_DAYS, CRON_EXPRESSION, RUN_IMMEDIATELY, \
-           TRIGGER_ALBUM_CREATOR, ALBUM_CREATOR_WEBHOOK_URL
+           TRIGGER_ALBUM_CREATOR, ALBUM_CREATOR_WEBHOOK_URL, \
+           DOWNLOAD_MAX_ATTEMPTS, DOWNLOAD_RETRY_DELAY
 
     if not os.path.exists(CONFIG_PATH):
         logger.info(f"No config.conf found - creating {CONFIG_PATH} from defaults")
@@ -98,6 +101,8 @@ def load():
     RUN_IMMEDIATELY = data['RUN_IMMEDIATELY']
     TRIGGER_ALBUM_CREATOR = data['TRIGGER_ALBUM_CREATOR']
     ALBUM_CREATOR_WEBHOOK_URL = data['ALBUM_CREATOR_WEBHOOK_URL']
+    DOWNLOAD_MAX_ATTEMPTS = data['DOWNLOAD_MAX_ATTEMPTS']
+    DOWNLOAD_RETRY_DELAY = data['DOWNLOAD_RETRY_DELAY']
 
 # --- Runs automatically the moment anything imports core.config - guaranteed to happen before
 # any importing script's own code runs, so every entry point gets dirs/config/logging ready for

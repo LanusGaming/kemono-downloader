@@ -3,6 +3,7 @@ from requests import HTTPError
 
 from .files import generate_hash
 from .network import SESSION, get_headers
+from . import config
 from .config import DATA_DIR, TEMP_DIR
 from .utils import *
 
@@ -56,9 +57,10 @@ class File:
     def get_dest_download_path(self) -> str:
         return DATA_DIR + os.path.join(self.get_folder_path(), self.get_filename())
     
-    def download(self, max_attempts: int = 60) -> bool:
+    def download(self) -> bool:
         temp_path = self.get_temp_download_path()
         dest_path = self.get_dest_download_path()
+        max_attempts = config.DOWNLOAD_MAX_ATTEMPTS
 
         logger.debug(f"Download starting... -> {dest_path}")
         for attempt in range(max_attempts):
@@ -77,7 +79,13 @@ class File:
                 break
             
             except Exception as e:
-                wait_time = 1
+                if isinstance(e, HTTPError) and e.response.status_code == 503:
+                    logger.warning(f"Skipping retries (503) -> {dest_path}")
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    return False
+
+                wait_time = config.DOWNLOAD_RETRY_DELAY
 
                 if isinstance(e, HTTPError) and e.response.status_code == 502:
                     wait_time = 5
