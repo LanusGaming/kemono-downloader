@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .files import extract, is_archive, get_thread_lock, generate_hash
 from .kemono import get_creator_data, get_all_posts_from_creator, get_post_data, get_file_data
-from .network import DOMAIN_CONFIG
+from .network import get_domain_config
 from .file import File
 from .utils import *
 from . import db
@@ -119,7 +119,7 @@ class Creator:
                 skipped += 1
                 continue
 
-            file_url = (DOMAIN_CONFIG['file_base_url'] + file_path).split('f=')[0]
+            file_url = (get_domain_config()['file_base_url'] + file_path).split('f=')[0]
             hash = get_hash_from_url(file_url)
             
             if not file_name:

@@ -1,72 +1,44 @@
-import requests, gzip, logging, time, os
+import requests, gzip, logging, time
 from fake_useragent import UserAgent
+from . import config
 
 logger = logging.getLogger("downloader")
 
 ua = UserAgent()
 user_agent = ua.chrome
 
-# Default headers (override referer per request)
-HEADERS = {
-    'User-Agent': user_agent,
-    'Accept': 'text/css',
-    'Accept-Language': "en-US,en;q=0.9",
-    'Connection': 'keep-alive'
-}
+def get_domain_config() -> dict:
+    """Built fresh from core.config's current values every call, so a change made through the
+    (future) API is picked up on the very next call - no manual resyncing needed."""
+    domain = config.DOMAIN
+    file_domain = config.FILE_DOMAIN or domain
+    return {
+        'domain': domain,
+        'base_url': f"https://{domain}",
+        'api_base': f"https://{domain}/api/v1",
+        'referer': f"https://{domain}/",
+        'file_base_url': f"https://{file_domain}{config.FILE_PATH_PREFIX}"
+    }
 
-# Kemono-schema-compatible mirrors (e.g. pawchive.pw) can be used by setting DOMAIN - the
-# API path structure is shared, so the config only needs the hostname to build every URL.
-# Some mirrors (e.g. pawchive) serve actual file downloads from a separate subdomain, and/or
-# need a path prefix inserted before the hash-bucket path returned by the API (kemono.cr's API
-# returns bare "/xx/yy/hash.ext" paths that work directly on its own domain; pawchive needs
-# "file.pawchive.pw" + "/data" prepended instead). FILE_DOMAIN/FILE_PATH_PREFIX cover that,
-# defaulting to DOMAIN/'' so single-host mirrors like kemono.cr need no extra config.
-DOMAIN = os.getenv('DOMAIN') or 'kemono.cr'
-FILE_DOMAIN = os.getenv('FILE_DOMAIN') or DOMAIN
-FILE_PATH_PREFIX = os.getenv('FILE_PATH_PREFIX') or ''
-DOMAIN_CONFIG = {
-    'domain': DOMAIN,
-    'base_url': f"https://{DOMAIN}",
-    'api_base': f"https://{DOMAIN}/api/v1",
-    'referer': f"https://{DOMAIN}/",
-    'file_base_url': f"https://{FILE_DOMAIN}{FILE_PATH_PREFIX}"
-}
+def get_headers() -> dict:
+    return {
+        'User-Agent': user_agent,
+        'Accept': 'text/css',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Connection': 'keep-alive',
+        'Referer': get_domain_config()['referer'],
+        'Cookie': f"session={config.SESSION_COOKIE}",
+    }
 
-def set_domain(domain: str, file_domain: str | None = None, file_path_prefix: str | None = None):
-    """Override DOMAIN_CONFIG for a single invocation (reconcile.py's --domain/--file-domain/
-    --file-path-prefix flags). Must be called before init_network(), which copies
-    DOMAIN_CONFIG['referer'] into HEADERS once - runtime.initialize() handles that ordering."""
-    global DOMAIN, FILE_DOMAIN, FILE_PATH_PREFIX
-    DOMAIN = domain
-    FILE_DOMAIN = file_domain or domain
-    FILE_PATH_PREFIX = file_path_prefix or ''
-    DOMAIN_CONFIG['domain'] = DOMAIN
-    DOMAIN_CONFIG['base_url'] = f"https://{DOMAIN}"
-    DOMAIN_CONFIG['api_base'] = f"https://{DOMAIN}/api/v1"
-    DOMAIN_CONFIG['referer'] = f"https://{DOMAIN}/"
-    DOMAIN_CONFIG['file_base_url'] = f"https://{FILE_DOMAIN}{FILE_PATH_PREFIX}"
-
-# Build a single session with pooling
 SESSION = requests.Session()
-
-def init_network(cookie: str):
-    HEADERS['Referer'] = DOMAIN_CONFIG['referer']
-    HEADERS['Cookie'] = f"session={cookie}"
-
-    # Configure connection pool
-    adapter = requests.adapters.HTTPAdapter(
-        pool_connections=20,
-        pool_maxsize=20,
-        max_retries=3,
-        pool_block=False
-    )
-
-    SESSION.mount('http://', adapter)
-    SESSION.mount('https://', adapter)
+_adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=20, max_retries=3, pool_block=False)
+SESSION.mount('http://', _adapter)
+SESSION.mount('https://', _adapter)
 
 def call_api(api_call: str, timeout: int = 15, max_attempts: int = 7, additional_headers: dict = {}) -> str:
-    url = f"{DOMAIN_CONFIG['api_base']}/{api_call}"
-    headers = HEADERS.copy()
+    domain_config = get_domain_config()
+    url = f"{domain_config['api_base']}/{api_call}"
+    headers = get_headers()
     headers.update(additional_headers)
 
     safe_headers = {k: ('***redacted***' if k.lower() == 'cookie' else v) for k, v in headers.items()}
@@ -115,8 +87,9 @@ def call_api(api_call: str, timeout: int = 15, max_attempts: int = 7, additional
 def call_api_action(api_call: str, method: str = 'POST', timeout: int = 15, max_attempts: int = 3) -> bool:
     """For write-style endpoints (favorite/unfavorite, etc.) that return no useful body -
     success is judged by status code alone, unlike call_api()'s text-returning read path."""
-    url = f"{DOMAIN_CONFIG['api_base']}/{api_call}"
-    headers = HEADERS.copy()
+    domain_config = get_domain_config()
+    url = f"{domain_config['api_base']}/{api_call}"
+    headers = get_headers()
     safe_headers = {k: ('***redacted***' if k.lower() == 'cookie' else v) for k, v in headers.items()}
 
     for attempt in range(max_attempts):

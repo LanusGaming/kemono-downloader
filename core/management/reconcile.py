@@ -5,8 +5,8 @@ from ..file import File
 from ..files import generate_hash, is_archive
 from ..kemono import get_all_posts_from_creator, add_favorite_creator
 from ..utils import get_hash_from_url
-from ..paths import DATA_DIR
-from ..network import DOMAIN_CONFIG
+from ..config import DATA_DIR
+from ..network import get_domain_config
 from .. import db
 
 logger = logging.getLogger("downloader")
@@ -127,7 +127,8 @@ def reconcile(creator: Creator, add_favorites: bool = False):
     )
 
     if add_favorites:
+        domain = get_domain_config()['domain']
         if add_favorite_creator(creator.service, creator.id):
-            logger.info(f"Added {creator.name} to favorites on {DOMAIN_CONFIG['domain']}")
+            logger.info(f"Added {creator.name} to favorites on {domain}")
         else:
-            logger.warning(f"Could not add {creator.name} to favorites on {DOMAIN_CONFIG['domain']}")
+            logger.warning(f"Could not add {creator.name} to favorites on {domain}")

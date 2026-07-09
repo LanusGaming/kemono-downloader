@@ -5,3 +5,4 @@ cython~=3.2
 rarfile~=4.2
 pyzipper~=0.4
 py7zr~=1.1
+croniter~=6.2

@@ -3,7 +3,7 @@ from py7zr.exceptions import PasswordRequired
 from _lzma import LZMAError
 
 from .utils import sanitize_filename
-from .paths import TEMP_DIR, DATA_DIR
+from .config import TEMP_DIR, DATA_DIR
 from dezip import _ZipDecrypter_C
 setattr(zipfile, '_ZipDecrypter', _ZipDecrypter_C)
 

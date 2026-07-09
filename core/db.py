@@ -1,6 +1,6 @@
 import sqlite3, json, os
 
-from .paths import CONFIG_DIR
+from .config import CONFIG_DIR
 
 DB_PATH = os.path.join(CONFIG_DIR, 'kemono.db')
 

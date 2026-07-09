@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import argparse, logging
-from runtime import initialize, process_creators
-from core.paths import DATA_DIR
+from core import config
+from core.creator import Creator
 from core.files import get_creators_from_data_dir
 from core.management.reconcile import reconcile
 
@@ -24,7 +24,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
              "with `docker exec -e SESSION_COOKIE=...` for that mirror's account.")
     parser.add_argument('--file-domain', default=None, metavar='FILE_DOMAIN',
         help='Override FILE_DOMAIN for this run only (only needed if the mirror serves files '
-             'from a separate host - see FILE_DOMAIN in .env.example).')
+             'from a separate host).')
     parser.add_argument('--file-path-prefix', default=None, metavar='FILE_PATH_PREFIX',
         help='Override FILE_PATH_PREFIX for this run only.')
     return parser
@@ -32,13 +32,29 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main():
     args = build_arg_parser().parse_args()
 
-    initialize(domain=args.domain, file_domain=args.file_domain, file_path_prefix=args.file_path_prefix)
+    if args.domain:
+        logger.info(f"Overriding domain for this run: {args.domain}")
+        config.DOMAIN = args.domain
+    if args.file_domain:
+        config.FILE_DOMAIN = args.file_domain
+    if args.file_path_prefix:
+        config.FILE_PATH_PREFIX = args.file_path_prefix
 
-    logger.info(f"Discovering creators from {DATA_DIR}...")
+    if not config.SESSION_COOKIE:
+        logger.critical("No session cookie has been provided")
+        exit(1)
+
+    logger.info(f"Discovering creators from {config.DATA_DIR}...")
     creators_info = get_creators_from_data_dir()
     logger.info(f"Discovered {len(creators_info)} creators")
 
-    process_creators(creators_info, lambda creator: reconcile(creator, add_favorites=args.favorite))
+    for service, id in creators_info:
+        try:
+            creator = Creator(service, id)
+            reconcile(creator, add_favorites=args.favorite)
+        except Exception as e:
+            logger.error(f"Failed processing creator {service}/{id}: {e}")
+            continue
 
 if __name__ == '__main__':
     main()

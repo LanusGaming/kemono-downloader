@@ -2,7 +2,7 @@ import os, operator, logging
 
 from ..creator import Creator
 from ..files import generate_hash
-from ..paths import DATA_DIR
+from ..config import DATA_DIR
 from .. import db
 
 logger = logging.getLogger("downloader")

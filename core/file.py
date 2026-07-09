@@ -2,8 +2,8 @@ import os, logging, shutil, time
 from requests import HTTPError
 
 from .files import generate_hash
-from .network import SESSION, HEADERS
-from .paths import DATA_DIR, TEMP_DIR
+from .network import SESSION, get_headers
+from .config import DATA_DIR, TEMP_DIR
 from .utils import *
 
 logger = logging.getLogger("downloader")
@@ -63,7 +63,7 @@ class File:
         logger.debug(f"Download starting... -> {dest_path}")
         for attempt in range(max_attempts):
             try:
-                r = SESSION.get(self.url, headers=HEADERS, stream=True, timeout=3600)
+                r = SESSION.get(self.url, headers=get_headers(), stream=True, timeout=3600)
                 r.raise_for_status()
 
                 with open(temp_path, 'wb') as f:
