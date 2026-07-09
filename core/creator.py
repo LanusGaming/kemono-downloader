@@ -1,4 +1,4 @@
-import os, logging, re
+import json, os, logging, re
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -7,6 +7,7 @@ from .kemono import get_creator_data, get_all_posts_from_creator, get_post_data,
 from .network import get_domain_config
 from .file import File
 from .utils import *
+from . import config as app_config
 from . import db
 
 logger = logging.getLogger("downloader")
@@ -41,20 +42,38 @@ class Creator:
         logger.info(f"Loading hashes...")
         self.load_files()
     
+    def _config_path(self) -> str:
+        return os.path.join(app_config.CONFIG_DIR, 'creators', f'{self.service}_{self.id}.json')
+
     def load_config(self):
-        config = db.get_creator_config(self.service, self.id)
+        path = self._config_path()
         creator_config = DEFAULT_CREATOR_CONFIG.copy()
 
-        for entry in creator_config:
-            if config and entry in config and config[entry]:
-                creator_config[entry] = config[entry]
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            for entry in creator_config:
+                if entry in data and data[entry]:
+                    creator_config[entry] = data[entry]
 
-            self.__dict__[entry] = creator_config[entry]
+        for entry, value in creator_config.items():
+            self.__dict__[entry] = value
 
-        db.save_creator_config(self.service, self.id, self.name, self.last_imported, creator_config)
+        self.save_config()
+        db.ensure_creator(self.service, self.id, self.name, self.last_imported)
 
         if self.INCLUDE_REGEX and self.EXCLUDE_REGEX:
             logger.info("Both INCLUDE_REGEX and EXCLUDE_REGEX are set - EXCLUDE_REGEX will be ignored")
+
+    def save_config(self):
+        """Writes this creator's current settings out to its JSON file - called once from
+        load_config() (so the file always exists after a run), and again from unpack() whenever
+        a new archive password is learned."""
+        path = self._config_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        creator_config = {entry: self.__dict__[entry] for entry in DEFAULT_CREATOR_CONFIG}
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(creator_config, f, indent=2)
 
     def load_files(self):
         total, archive_count = db.count_files_for_creator(self.service, self.id)
@@ -276,7 +295,7 @@ class Creator:
                     self.ARCHIVE_PASSWORDS.append(password)
 
                     with get_thread_lock():
-                        db.update_archive_passwords(self.service, self.id, self.ARCHIVE_PASSWORDS)
+                        self.save_config()
 
                 success = True
                 break

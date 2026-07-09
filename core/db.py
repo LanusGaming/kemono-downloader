@@ -1,4 +1,4 @@
-import sqlite3, json, os
+import sqlite3, os
 
 from .config import CONFIG_DIR
 
@@ -12,14 +12,6 @@ CREATE TABLE IF NOT EXISTS creators (
     id TEXT NOT NULL,
     name TEXT NOT NULL,
     last_imported REAL,
-    include_regex TEXT NOT NULL DEFAULT '',
-    exclude_regex TEXT NOT NULL DEFAULT '',
-    allowed_extensions TEXT NOT NULL DEFAULT '[]',
-    allowed_types TEXT NOT NULL DEFAULT '[]',
-    auto_unzip INTEGER NOT NULL DEFAULT 1,
-    keep_unpacked_archives INTEGER NOT NULL DEFAULT 1,
-    keep_failed_archives INTEGER NOT NULL DEFAULT 0,
-    archive_passwords TEXT NOT NULL DEFAULT '[null]',
     PRIMARY KEY (service, id)
 );
 
@@ -66,57 +58,15 @@ def get_connection() -> sqlite3.Connection:
         _connection.commit()
     return _connection
 
-def get_creator_config(service: str, id: str) -> dict | None:
-    conn = get_connection()
-    row = conn.execute("SELECT * FROM creators WHERE service=? AND id=?", (service, id)).fetchone()
-    if not row:
-        return None
-
-    config = dict(row)
-    config['ALLOWED_EXTENSIONS'] = json.loads(config.pop('allowed_extensions'))
-    config['ALLOWED_TYPES'] = json.loads(config.pop('allowed_types'))
-    config['ARCHIVE_PASSWORDS'] = json.loads(config.pop('archive_passwords'))
-    config['INCLUDE_REGEX'] = config.pop('include_regex')
-    config['EXCLUDE_REGEX'] = config.pop('exclude_regex')
-    config['AUTO_UNZIP'] = bool(config.pop('auto_unzip'))
-    config['KEEP_UNPACKED_ARCHIVES'] = bool(config.pop('keep_unpacked_archives'))
-    config['KEEP_FAILED_ARCHIVES'] = bool(config.pop('keep_failed_archives'))
-
-    return config
-
-def save_creator_config(service: str, id: str, name: str, last_imported: float, config: dict):
+def ensure_creator(service: str, id: str, name: str, last_imported: float):
     conn = get_connection()
     conn.execute("""
-        INSERT INTO creators (service, id, name, last_imported, include_regex, exclude_regex,
-                               allowed_extensions, allowed_types, auto_unzip,
-                               keep_unpacked_archives, keep_failed_archives, archive_passwords)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO creators (service, id, name, last_imported)
+        VALUES (?, ?, ?, ?)
         ON CONFLICT (service, id) DO UPDATE SET
             name=excluded.name,
-            last_imported=excluded.last_imported,
-            include_regex=excluded.include_regex,
-            exclude_regex=excluded.exclude_regex,
-            allowed_extensions=excluded.allowed_extensions,
-            allowed_types=excluded.allowed_types,
-            auto_unzip=excluded.auto_unzip,
-            keep_unpacked_archives=excluded.keep_unpacked_archives,
-            keep_failed_archives=excluded.keep_failed_archives,
-            archive_passwords=excluded.archive_passwords
-    """, (
-        service, id, name, last_imported,
-        config['INCLUDE_REGEX'], config['EXCLUDE_REGEX'],
-        json.dumps(config['ALLOWED_EXTENSIONS']), json.dumps(config['ALLOWED_TYPES']),
-        int(bool(config['AUTO_UNZIP'])), int(bool(config['KEEP_UNPACKED_ARCHIVES'])),
-        int(bool(config['KEEP_FAILED_ARCHIVES'])), json.dumps(config['ARCHIVE_PASSWORDS'])
-    ))
-    conn.commit()
-
-def update_archive_passwords(service: str, id: str, passwords: list):
-    conn = get_connection()
-    conn.execute(
-        "UPDATE creators SET archive_passwords=? WHERE service=? AND id=?",
-        (json.dumps(passwords), service, id)
-    )
+            last_imported=excluded.last_imported
+    """, (service, id, name, last_imported))
     conn.commit()
 
 def get_creator_hashes(service: str, id: str) -> set[str]:
