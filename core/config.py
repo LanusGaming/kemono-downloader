@@ -1,4 +1,6 @@
-import json, logging, os, shutil, sys, time
+import logging, os, shutil, sys, time
+
+from . import conf
 
 logger = logging.getLogger("downloader")
 failure_logger = logging.getLogger("failed")
@@ -8,7 +10,15 @@ CONFIG_DIR = os.getenv('CONFIG_DIR', '/config')
 TEMP_DIR = os.getenv('TEMP_DIR', '/temp')
 SESSION_COOKIE = os.getenv('SESSION_COOKIE', '')
 
-CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.json')
+CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.conf')
+DEFAULT_CONFIG_TEMPLATE = os.path.join(os.path.dirname(__file__), 'config.conf.default')
+
+SCHEMA = {
+    'DOMAIN': str, 'FILE_DOMAIN': str, 'FILE_PATH_PREFIX': str, 'CREATOR_URL_FILE': str,
+    'CREATORS_FROM_DATA': bool, 'LOG_LEVEL': str, 'LOG_RETENTION_DAYS': int,
+    'CRON_EXPRESSION': str, 'RUN_IMMEDIATELY': bool, 'TRIGGER_ALBUM_CREATOR': bool,
+    'ALBUM_CREATOR_WEBHOOK_URL': str,
+}
 
 DOMAIN = 'kemono.cr'
 FILE_DOMAIN = ''               # empty => falls back to DOMAIN, see network.get_domain_config()
@@ -59,50 +69,35 @@ def _setup_loggers(log_level: str, log_retention_days: int):
     failure_logger.addHandler(failure_h)
 
 def load():
-    """Reads config.json into this module's globals, creating the file with the defaults above
-    if it doesn't exist yet. Re-callable later (e.g. by the future API, to pick up a hand-edited
-    file) - does NOT touch SESSION_COOKIE, which is only ever set once, from the env var, as
-    part of the automatic init below (an env var only changes on a restart anyway)."""
+    """Reads config.conf into this module's globals, bootstrapping the file from the shipped
+    default template if it doesn't exist yet. Re-callable later (e.g. by the future API, to pick
+    up a hand-edited file) - does NOT touch SESSION_COOKIE, which is only ever set once, from the
+    env var, as part of the automatic init below (an env var only changes on a restart anyway)."""
     global DOMAIN, FILE_DOMAIN, FILE_PATH_PREFIX, CREATOR_URL_FILE, CREATORS_FROM_DATA, \
            LOG_LEVEL, LOG_RETENTION_DAYS, CRON_EXPRESSION, RUN_IMMEDIATELY, \
            TRIGGER_ALBUM_CREATOR, ALBUM_CREATOR_WEBHOOK_URL
 
     if not os.path.exists(CONFIG_PATH):
-        logger.info(f"No config.json found - creating {CONFIG_PATH} with defaults")
-        save()
-        return
+        logger.info(f"No config.conf found - creating {CONFIG_PATH} from defaults")
+        shutil.copy(DEFAULT_CONFIG_TEMPLATE, CONFIG_PATH)
 
     try:
-        with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
+        data = conf.read(CONFIG_PATH, DEFAULT_CONFIG_TEMPLATE, SCHEMA)
+    except OSError as e:
         logger.error(f"Could not read {CONFIG_PATH} ({e}) - using built-in defaults for this run")
         return
 
-    DOMAIN = data.get('DOMAIN', DOMAIN)
-    FILE_DOMAIN = data.get('FILE_DOMAIN', FILE_DOMAIN)
-    FILE_PATH_PREFIX = data.get('FILE_PATH_PREFIX', FILE_PATH_PREFIX)
-    CREATOR_URL_FILE = data.get('CREATOR_URL_FILE', CREATOR_URL_FILE)
-    CREATORS_FROM_DATA = data.get('CREATORS_FROM_DATA', CREATORS_FROM_DATA)
-    LOG_LEVEL = data.get('LOG_LEVEL', LOG_LEVEL)
-    LOG_RETENTION_DAYS = data.get('LOG_RETENTION_DAYS', LOG_RETENTION_DAYS)
-    CRON_EXPRESSION = data.get('CRON_EXPRESSION', CRON_EXPRESSION)
-    RUN_IMMEDIATELY = data.get('RUN_IMMEDIATELY', RUN_IMMEDIATELY)
-    TRIGGER_ALBUM_CREATOR = data.get('TRIGGER_ALBUM_CREATOR', TRIGGER_ALBUM_CREATOR)
-    ALBUM_CREATOR_WEBHOOK_URL = data.get('ALBUM_CREATOR_WEBHOOK_URL', ALBUM_CREATOR_WEBHOOK_URL)
-
-def save():
-    """Writes this module's current values out to config.json - SESSION_COOKIE excluded on
-    purpose (see load()'s docstring)."""
-    with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-        json.dump({
-            'DOMAIN': DOMAIN, 'FILE_DOMAIN': FILE_DOMAIN, 'FILE_PATH_PREFIX': FILE_PATH_PREFIX,
-            'CREATOR_URL_FILE': CREATOR_URL_FILE, 'CREATORS_FROM_DATA': CREATORS_FROM_DATA,
-            'LOG_LEVEL': LOG_LEVEL, 'LOG_RETENTION_DAYS': LOG_RETENTION_DAYS,
-            'CRON_EXPRESSION': CRON_EXPRESSION, 'RUN_IMMEDIATELY': RUN_IMMEDIATELY,
-            'TRIGGER_ALBUM_CREATOR': TRIGGER_ALBUM_CREATOR,
-            'ALBUM_CREATOR_WEBHOOK_URL': ALBUM_CREATOR_WEBHOOK_URL,
-        }, f, indent=2)
+    DOMAIN = data['DOMAIN']
+    FILE_DOMAIN = data['FILE_DOMAIN']
+    FILE_PATH_PREFIX = data['FILE_PATH_PREFIX']
+    CREATOR_URL_FILE = data['CREATOR_URL_FILE']
+    CREATORS_FROM_DATA = data['CREATORS_FROM_DATA']
+    LOG_LEVEL = data['LOG_LEVEL']
+    LOG_RETENTION_DAYS = data['LOG_RETENTION_DAYS']
+    CRON_EXPRESSION = data['CRON_EXPRESSION']
+    RUN_IMMEDIATELY = data['RUN_IMMEDIATELY']
+    TRIGGER_ALBUM_CREATOR = data['TRIGGER_ALBUM_CREATOR']
+    ALBUM_CREATOR_WEBHOOK_URL = data['ALBUM_CREATOR_WEBHOOK_URL']
 
 # --- Runs automatically the moment anything imports core.config - guaranteed to happen before
 # any importing script's own code runs, so every entry point gets dirs/config/logging ready for

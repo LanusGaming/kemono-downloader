@@ -1,4 +1,4 @@
-import json, os, logging, re
+import os, logging, re, shutil
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -8,21 +8,18 @@ from .network import get_domain_config
 from .file import File
 from .utils import *
 from . import config as app_config
+from . import conf
 from . import db
 
 logger = logging.getLogger("downloader")
 failure_logger = logging.getLogger("failed")
 
-DEFAULT_CREATOR_CONFIG = {
-    'INCLUDE_REGEX': '',
-    'EXCLUDE_REGEX': '',
-    'ALLOWED_EXTENSIONS': ['.jpg', '.jpeg', '.png', '.zip', '.mp4', '.gif', '.pdf', '.7z', '.mp3', '.wav', '.rar', '.mov', '.docx', '.jpe', '.webp'],
-    'ALLOWED_TYPES': ['attachment'],
-    'AUTO_UNZIP': True,
-    'KEEP_UNPACKED_ARCHIVES': True,
-    'KEEP_FAILED_ARCHIVES': False,
-    'ARCHIVE_PASSWORDS': [None]
+CREATOR_CONFIG_SCHEMA = {
+    'INCLUDE_REGEX': str, 'EXCLUDE_REGEX': str, 'ALLOWED_EXTENSIONS': list, 'ALLOWED_TYPES': list,
+    'AUTO_UNZIP': bool, 'KEEP_UNPACKED_ARCHIVES': bool, 'KEEP_FAILED_ARCHIVES': bool,
+    'ARCHIVE_PASSWORDS': list,
 }
+DEFAULT_CREATOR_CONFIG_TEMPLATE = os.path.join(os.path.dirname(__file__), 'creator.conf.default')
 
 class Creator:
     def __init__(self, service: str, id: str):
@@ -43,37 +40,31 @@ class Creator:
         self.load_files()
     
     def _config_path(self) -> str:
-        return os.path.join(app_config.CONFIG_DIR, 'creators', f'{self.service}_{self.id}.json')
+        return os.path.join(app_config.CONFIG_DIR, 'creators', f'{self.service}_{self.id}.conf')
 
     def load_config(self):
         path = self._config_path()
-        creator_config = DEFAULT_CREATOR_CONFIG.copy()
 
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            for entry in creator_config:
-                if entry in data and data[entry]:
-                    creator_config[entry] = data[entry]
+        if not os.path.exists(path):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            shutil.copy(DEFAULT_CREATOR_CONFIG_TEMPLATE, path)
 
+        creator_config = conf.read(path, DEFAULT_CREATOR_CONFIG_TEMPLATE, CREATOR_CONFIG_SCHEMA)
         for entry, value in creator_config.items():
             self.__dict__[entry] = value
 
-        self.save_config()
         db.ensure_creator(self.service, self.id, self.name, self.last_imported)
 
         if self.INCLUDE_REGEX and self.EXCLUDE_REGEX:
             logger.info("Both INCLUDE_REGEX and EXCLUDE_REGEX are set - EXCLUDE_REGEX will be ignored")
 
     def save_config(self):
-        """Writes this creator's current settings out to its JSON file - called once from
-        load_config() (so the file always exists after a run), and again from unpack() whenever
-        a new archive password is learned."""
+        """Writes this creator's current settings out to its .conf file - called from unpack()
+        whenever a new archive password is learned."""
         path = self._config_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
-        creator_config = {entry: self.__dict__[entry] for entry in DEFAULT_CREATOR_CONFIG}
-        with open(path, 'w', encoding='utf-8') as f:
-            json.dump(creator_config, f, indent=2)
+        values = {entry: self.__dict__[entry] for entry in CREATOR_CONFIG_SCHEMA}
+        conf.write(path, DEFAULT_CREATOR_CONFIG_TEMPLATE, values)
 
     def load_files(self):
         total, archive_count = db.count_files_for_creator(self.service, self.id)

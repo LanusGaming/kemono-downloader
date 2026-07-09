@@ -1,0 +1,32 @@
+# Domain to fetch data from - kemono.cr or a mirror like pawchive.pw
+DOMAIN=kemono.cr
+
+# Domain to download files from - leave empty to use DOMAIN for files too
+FILE_DOMAIN=
+
+# Prefix to prepend to file paths when FILE_DOMAIN differs from DOMAIN (mirror-specific quirk)
+FILE_PATH_PREFIX=
+
+# Path to a file containing creator URLs to import, one per line - leave empty to skip
+CREATOR_URL_FILE=
+
+# Import creators found in existing /data folders in addition to CREATOR_URL_FILE
+CREATORS_FROM_DATA=false
+
+# Log verbosity: DEBUG, INFO, WARNING, ERROR
+LOG_LEVEL=INFO
+
+# Days to keep old log/failure files before deleting them - 0 disables pruning
+LOG_RETENTION_DAYS=14
+
+# Cron expression for scheduled runs - leave empty to run once and exit
+CRON_EXPRESSION=
+
+# Run a download immediately on startup, in addition to the cron schedule
+RUN_IMMEDIATELY=false
+
+# Trigger the album-creator webhook after each run
+TRIGGER_ALBUM_CREATOR=false
+
+# Webhook URL to call when TRIGGER_ALBUM_CREATOR is enabled
+ALBUM_CREATOR_WEBHOOK_URL=http://album-creator:8080/run

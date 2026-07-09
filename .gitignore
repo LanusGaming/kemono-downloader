@@ -69,7 +69,7 @@ docker-compose.override.yml
 *.sqlite3
 
 # App config (belt-and-suspenders in case CONFIG_PATH is ever pointed elsewhere)
-config.json
+config.conf
 
 # Cython build artifacts (generated .c from .pyx; the built .so is already covered above)
 ext/*.c

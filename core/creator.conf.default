@@ -1,0 +1,24 @@
+# Regex - only download posts whose title matches (mutually exclusive with EXCLUDE_REGEX)
+INCLUDE_REGEX=
+
+# Regex - skip posts whose title matches (ignored if INCLUDE_REGEX is set)
+EXCLUDE_REGEX=
+
+# Comma-separated file extensions to download - leave empty to allow any extension
+ALLOWED_EXTENSIONS=.jpg,.jpeg,.png,.zip,.mp4,.gif,.pdf,.7z,.mp3,.wav,.rar,.mov,.docx,.jpe,.webp
+
+# Comma-separated file types to download (attachment, thumbnail, embed) - leave empty to allow any type
+ALLOWED_TYPES=attachment
+
+# Automatically extract downloaded archives
+AUTO_UNZIP=true
+
+# Keep archive files after successful extraction
+KEEP_UNPACKED_ARCHIVES=true
+
+# Keep archives that failed to extract instead of deleting + retrying every run
+KEEP_FAILED_ARCHIVES=false
+
+# Comma-separated archive passwords to try - the shipped "" entry means "also try no password".
+# A password containing a literal comma must be quoted, e.g. "pass,word",other
+ARCHIVE_PASSWORDS=""
