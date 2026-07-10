@@ -1,0 +1,5 @@
+pytest~=8.3
+pytest-cov~=6.0
+pytest-socket~=0.7
+requests-mock~=1.12
+freezegun~=1.5

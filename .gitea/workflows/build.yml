@@ -4,9 +4,43 @@ on:
   push:
     branches:
       - main
+  pull_request:
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'  # matches the Dockerfile's python:3.11-slim base image
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential python3-dev libomp-dev
+          # unrar, for .rar-extraction tests - same non-free-repo dance as the Dockerfile's
+          # runtime stage, since the plain Ubuntu/Debian repos only carry unrar-free
+          CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+          echo "deb http://deb.debian.org/debian ${CODENAME} main non-free" | sudo tee /etc/apt/sources.list.d/non-free.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends unrar rar
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt -r requirements-test.txt
+
+      - name: Build the dezip extension
+        run: cd ext && python3 dezip_setup.py build_ext --inplace
+
+      - name: Run tests
+        run: pytest --cov=core --cov=app --cov=download --cov=scheduler --cov=reconcile --cov-report=term-missing
+
   build-and-push:
+    needs: test
+    if: gitea.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
