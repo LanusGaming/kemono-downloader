@@ -108,15 +108,18 @@ def load():
     DOWNLOAD_MAX_ATTEMPTS = data['DOWNLOAD_MAX_ATTEMPTS']
     DOWNLOAD_RETRY_DELAY = data['DOWNLOAD_RETRY_DELAY']
 
-# Runs on import, before any entry point's own code, so every script gets dirs/config/logging
-# for free via `from core import config`.
-os.makedirs(CONFIG_DIR, exist_ok=True)
-os.makedirs(f"{CONFIG_DIR}/logs", exist_ok=True)
-os.makedirs(f"{CONFIG_DIR}/failed", exist_ok=True)
-os.makedirs(DATA_DIR, exist_ok=True)
-if os.path.exists(TEMP_DIR):
-    shutil.rmtree(TEMP_DIR, ignore_errors=True)
-os.makedirs(TEMP_DIR, exist_ok=True)
+def init():
+    """Creates the config/data/temp directories (wiping and recreating TEMP_DIR), loads
+    config.conf, and sets up logging. Each entrypoint (app.py, download.py, reconcile.py) must
+    call this once, early, before using anything that depends on it being ready."""
 
-load()
-_setup_loggers(LOG_LEVEL, LOG_RETENTION_DAYS)
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    os.makedirs(f"{CONFIG_DIR}/logs", exist_ok=True)
+    os.makedirs(f"{CONFIG_DIR}/failed", exist_ok=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    if os.path.exists(TEMP_DIR):
+        shutil.rmtree(TEMP_DIR, ignore_errors=True)
+    os.makedirs(TEMP_DIR, exist_ok=True)
+
+    load()
+    _setup_loggers(LOG_LEVEL, LOG_RETENTION_DAYS)

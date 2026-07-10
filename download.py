@@ -39,6 +39,8 @@ def main():
     """Downloads every resolved creator in turn. A single creator's failure is logged and
     skipped rather than aborting the rest of the run."""
 
+    config.init()
+
     if not config.SESSION_COOKIE:
         logger.critical("No session cookie has been provided")
         exit(1)

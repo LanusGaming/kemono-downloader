@@ -19,6 +19,8 @@ signal.signal(signal.SIGTERM, _handle_signal)
 signal.signal(signal.SIGINT, _handle_signal)
 
 def main():
+    config.init()
+
     if not config.CRON_EXPRESSION:
         # No API yet, so nothing to stay alive for without a schedule - once built, this
         # branch must start the API and stay running even here.

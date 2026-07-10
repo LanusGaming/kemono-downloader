@@ -33,6 +33,8 @@ def main():
     """Applies any --domain/--file-domain/--file-path-prefix overrides, then reconciles every
     creator found under DATA_DIR. A single creator's failure is logged and skipped."""
 
+    config.init()
+
     args = build_arg_parser().parse_args()
 
     if args.domain:
