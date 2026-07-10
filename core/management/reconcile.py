@@ -12,6 +12,10 @@ from .. import db
 logger = logging.getLogger("downloader")
 
 def reconcile(creator: Creator, add_favorites: bool = False):
+    """Rebuilds DB records for this creator by matching files already on disk against their
+    expected post/hash, without downloading. Unmatched files are recorded as best-effort
+    "stragglers" so dedup still protects them."""
+
     folder_path = f"{DATA_DIR}/{creator.name}_{creator.service}_{creator.id}"
     if not os.path.exists(folder_path):
         logger.info(f"No files on disk for this creator")
@@ -34,9 +38,8 @@ def reconcile(creator: Creator, add_favorites: bool = False):
 
     for root, _, filenames in os.walk(folder_path):
         for filename in filenames:
-            # sanitize_filename() strips ':' from every real downloaded name, so a literal ':'
-            # can only be a filesystem artifact (e.g. Windows Zone.Identifier ADS markers left
-            # behind by some file-transfer tools) - never real content.
+            # sanitize_filename() strips ':' from every real name, so a literal ':' can only be
+            # a filesystem artifact (e.g. Windows Zone.Identifier ADS markers) - never real content.
             if ':' in filename:
                 counts['skipped'] += 1
                 continue
@@ -101,9 +104,8 @@ def reconcile(creator: Creator, add_favorites: bool = False):
                 counts['archive_child'] += 1
                 continue
 
-            # Straggler: no matching post-file and no matching archive parent (e.g. a deleted
-            # post, or a locally modified file). Recorded with best-effort metadata so it's
-            # still protected from being re-downloaded - dedup is hash-based, not post-based.
+            # Straggler: no matching post-file or archive parent (e.g. a deleted post, or a
+            # manually added file). Recorded anyway so hash-based dedup still protects it.
             published = os.path.getmtime(path)
             file = File({
                 'creator_id': creator.id,

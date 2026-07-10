@@ -8,6 +8,8 @@ from .. import db
 logger = logging.getLogger("downloader")
 
 def deduplicate(creator: Creator):
+    """Removes duplicate files (by content hash) from this creator's folder on disk, keeping
+    the highest-ranked, most recent copy of each hash. Not currently wired to a CLI entrypoint."""
 
     rows = db.get_files_for_creator(creator.service, creator.id)
     creator_files = {row['path']: row['hash'] for row in rows}
@@ -34,6 +36,10 @@ def deduplicate(creator: Creator):
     logger.info(f"Removed {duplicates} duplicates (kept {len(hashes)})")
 
 def recursive_scan(folder_path: str, creator_files: dict, file_types: dict) -> list[tuple[str, str, int, float]]:
+    """Walks `folder_path`, returning (path, hash, rank, mtime) per file. Rank is 2 for a known
+    non-archive DB record, 1 for a known archive-child record, 0 if not in the DB (hash is
+    computed on the fly in that case)."""
+
     files = []
 
     with os.scandir(folder_path) as entries:
@@ -61,5 +67,8 @@ def recursive_scan(folder_path: str, creator_files: dict, file_types: dict) -> l
     return files
 
 def sort_files(files: list[tuple[str, str, int, int]]) -> list[dict]:
+    """Sorts recursive_scan()'s output by (rank, mtime) descending - highest-ranked, most
+    recent files first."""
+
     logger.info(f"Sorting files...")
     return sorted(files, key=operator.itemgetter(2, 3), reverse=True)

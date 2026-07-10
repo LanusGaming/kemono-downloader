@@ -151,8 +151,10 @@ Exactly one of the following sources is used per run, in this priority order:
 
 1. **`CREATORS_FROM_DATA=true`** — discover creators from folder names already under `/data`,
    matching the `<name>_<service>_<id>` convention this script itself uses (see
-   [Data Layout](#data-layout)). Useful once you already have a populated library and don't want
-   to maintain a separate creator list.
+   [Data Layout](#data-layout)). Only recognizes a fixed set of service names (`patreon`,
+   `fanbox`, `fantia`, `boosty`, `gumroad`, `subscribestar`, `dlsite`) with a numeric id — folders
+   that don't match are silently skipped. Useful once you already have a populated library and
+   don't want to maintain a separate creator list.
 2. **`CREATOR_URL_FILE`** — a plain-text file with one creator profile URL per line, e.g.:
    ```
    https://kemono.cr/patreon/user/12345678
@@ -279,8 +281,9 @@ Just make sure the two containers sit on a common network, so the webhook can be
 ## Logs & Failures
 Everything under `config/`, alongside the config files and database:
 - `config/logs/<timestamp>.log` — a full debug-level log for each run.
-- `config/failed/<timestamp>.json` — one line per file that failed to download or extract during
-  that run, with its full metadata (creator, post, URL, path) for troubleshooting or manual retry.
+- `config/failed/<timestamp>.json` — one JSON object per line for each file that failed to
+  download or extract during that run, with its full metadata (creator, post, URL, path) for
+  troubleshooting or manual retry.
 - Both are pruned automatically per `LOG_RETENTION_DAYS`.
 - `config/kemono.db` — the SQLite database of known creators, posts, and files.
 

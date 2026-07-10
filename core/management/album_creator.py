@@ -4,10 +4,9 @@ import requests
 logger = logging.getLogger("downloader")
 
 def trigger_album_creator(webhook_url: str, timeout: int = 10) -> bool:
-    """POSTs to an immich-album-creator-webhook instance (see the sibling
-    immich-album-creator-webhook project) to kick off one album-creator pass -
-    fire-and-forget, doesn't wait for it to finish. No Docker access needed
-    on either side, just plain HTTP."""
+    """POSTs to webhook_url to kick off an album-creator run. Treats a 409 response
+    (already running) as success."""
+
     try:
         logger.info(f"Triggering album creator at {webhook_url}...")
         response = requests.post(webhook_url, timeout=timeout)

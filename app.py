@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Container entrypoint - decides one-shot vs. internally-scheduled, and (soon) will start a
-remote-control API alongside the scheduler thread. Replaces supercronic + entrypoint.sh entirely.
-"""
+"""Container entrypoint - runs once or starts the scheduler thread based on CRON_EXPRESSION.
+Will also host a remote-control API once built."""
+
 import logging, signal, sys, threading
 
 from core import config
@@ -20,15 +20,14 @@ signal.signal(signal.SIGINT, _handle_signal)
 
 def main():
     if not config.CRON_EXPRESSION:
-        # No API exists yet in this stage, so there's nothing to stay alive for without a
-        # schedule - matches today's exact one-shot behavior. Once the API is built, this
-        # branch needs to change: start the API and don't exit even without a schedule.
+        # No API yet, so nothing to stay alive for without a schedule - once built, this
+        # branch must start the API and stay running even here.
         sys.exit(scheduler.run_once())
 
     scheduler_thread = threading.Thread(target=scheduler.run_loop)
     scheduler_thread.start()
 
-    # TODO: start the (future) remote-control API here once built.
+    # TODO: start the remote-control API here once built.
     scheduler_thread.join()
     logger.info("App exiting")
 

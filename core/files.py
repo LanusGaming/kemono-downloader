@@ -8,6 +8,9 @@ from dezip import _ZipDecrypter_C
 setattr(zipfile, '_ZipDecrypter', _ZipDecrypter_C)
 
 def get_thread_lock():
+    """Returns a shared lock, created once and cached on this function, for guarding DB/hash-set
+    access across concurrent download threads."""
+
     if not hasattr(get_thread_lock, 'lock'):
         get_thread_lock.lock = threading.Lock()
     return get_thread_lock.lock
@@ -17,6 +20,9 @@ class UnsafeArchivePath(Exception):
     pass
 
 def _ensure_safe_archive_paths(names: list[str], directory: str):
+    """Raises UnsafeArchivePath if any archive member would extract outside `directory`
+    (zip-slip protection)."""
+
     abs_directory = os.path.abspath(directory)
     for name in names:
         target = os.path.abspath(os.path.join(abs_directory, name))
@@ -27,6 +33,10 @@ def is_archive(filepath: str) -> bool:
     return os.path.splitext(filepath)[1].lower() in ['.7z', '.zip', '.rar']
 
 def recursive_move(source_folder: str, destination_folder: str, index: int = 0) -> tuple[list[tuple[str, str]], int]:
+    """Flattens `source_folder` (recursively) into `destination_folder`, renaming each file to
+    a zero-padded index plus its original extension. Returns the (new path, original sanitized
+    name) pairs and the next free index."""
+
     files = []
     with os.scandir(source_folder) as dir:
         for entry in dir:
@@ -44,6 +54,9 @@ def recursive_move(source_folder: str, destination_folder: str, index: int = 0) 
     return (files, index)
 
 def unzip(filepath: str, directory: str, password: str):
+    """Extracts a .zip to `directory`, falling back to pyzipper for AES-encrypted zips the
+    standard library can't read. Raises RuntimeError on a wrong or missing password."""
+
     try:
         with zipfile.ZipFile(filepath, 'r') as archive:
             if password:
@@ -78,6 +91,8 @@ def unzip(filepath: str, directory: str, password: str):
                 raise RuntimeError("Password may be required")
 
 def unrar(filepath: str, directory: str, password: str):
+    """Extracts a .rar to `directory`. Raises RuntimeError on a wrong or missing password."""
+
     try:
         with rarfile.RarFile(filepath) as archive:
             if password:
@@ -93,6 +108,8 @@ def unrar(filepath: str, directory: str, password: str):
             raise RuntimeError("Password may be required")
 
 def un7z(filepath: str, directory: str, password: str):
+    """Extracts a .7z to `directory`. Raises RuntimeError on a wrong or missing password."""
+
     try:
         with py7zr.SevenZipFile(filepath, mode='r', password=password) as archive:
             _ensure_safe_archive_paths(archive.getnames(), directory)
@@ -105,6 +122,10 @@ def un7z(filepath: str, directory: str, password: str):
             raise RuntimeError("Password may be required")
 
 def extract(filepath: str, password: str) -> list[tuple[str, str]]:
+    """Extracts `filepath` (by extension: zip/rar/7z) into a fresh directory named after the
+    archive, flattening any nested folders. Returns the (path, name) pairs produced. Raises
+    RuntimeError if the password is wrong or missing."""
+
     dir = os.path.splitext(filepath)[0]
     temp_dir = f"{TEMP_DIR}/{generate_hash(filepath)}_temp"
 
@@ -139,10 +160,15 @@ def extract(filepath: str, password: str) -> list[tuple[str, str]]:
 
 # HASHES
 def generate_hash(filepath: str) -> str:
+    """Returns the SHA-256 hex digest of a file's contents."""
+
     with open(filepath, 'rb') as f:
         return hashlib.file_digest(f, 'sha256').hexdigest()
 
 def generate_hashes(folder: str, allowed_exts: list[str]) -> list[tuple[str]]:
+    """Returns (path, sha256) for every file directly in `folder` (non-recursive) whose
+    extension is in allowed_exts."""
+
     file_hashes = []
 
     with os.scandir(folder) as files:
@@ -156,6 +182,9 @@ def generate_hashes(folder: str, allowed_exts: list[str]) -> list[tuple[str]]:
 
 
 def get_creators_from_file(filepath: str) -> list[tuple[str]]:
+    """Parses one creator profile URL per line from `filepath` (expects a `.../<service>/user/
+    <id>` suffix), returning (service, id) pairs. Malformed lines are skipped."""
+
     if not os.path.exists(filepath):
         return []
 
@@ -181,6 +210,9 @@ def get_creators_from_file(filepath: str) -> list[tuple[str]]:
 KNOWN_SERVICES = {'patreon', 'fanbox', 'fantia', 'boosty', 'gumroad', 'subscribestar', 'dlsite'}
 
 def get_creators_from_data_dir() -> list[tuple[str, str]]:
+    """Discovers creators from /data folder names matching `<name>_<service>_<id>`, filtering
+    to KNOWN_SERVICES with a numeric id."""
+
     if not os.path.exists(DATA_DIR):
         return []
 

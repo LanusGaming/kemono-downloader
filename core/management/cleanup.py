@@ -8,6 +8,9 @@ from .. import db
 logger = logging.getLogger("downloader")
 
 def cleanup(creator: Creator):
+    """Retries extraction for this creator's archives still on disk, mainly ones kept after a
+    failed unpack (KEEP_FAILED_ARCHIVES=true). Not currently wired to a CLI entrypoint."""
+
     files = []
 
     logger.info(f"Collecting archives...")
@@ -23,6 +26,9 @@ def cleanup(creator: Creator):
         unpack(creator, file)
 
 def unpack(creator: Creator, file: File) -> bool:
+    """Extracts `file` via creator.unpack() and saves it on success - the per-file helper
+    cleanup() calls."""
+
     logger.debug(f"Extracting... -> {file.path}")
     if not creator.unpack(file):
         logger.error(f"Extraction failed -> {file.path}")

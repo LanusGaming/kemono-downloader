@@ -29,6 +29,9 @@ DEFAULT_FILE = {
 
 class File:
     def __init__(self, data: dict):
+        """Fills fields from DEFAULT_FILE, overridden by `data`. Keys in `data` not present in
+        DEFAULT_FILE are silently dropped."""
+
         default_data = DEFAULT_FILE.copy()
         default_data.update(data)
 
@@ -36,6 +39,8 @@ class File:
             self.__dict__[key] = default_data[key]
 
     def get_data(self) -> dict:
+        """Returns this File's fields as a plain dict - the inverse of __init__."""
+
         data = DEFAULT_FILE.copy()
         for key in data:
             data[key] = self.__dict__[key]
@@ -58,6 +63,11 @@ class File:
         return DATA_DIR + os.path.join(self.get_folder_path(), self.get_filename())
     
     def download(self) -> bool:
+        """Downloads self.url to a temp path and moves it to its destination on success,
+        retrying up to DOWNLOAD_MAX_ATTEMPTS times. A 503 fails immediately with no retry; a
+        502 always waits 5s regardless of DOWNLOAD_RETRY_DELAY. Sets self.path/self.hash on
+        success."""
+
         temp_path = self.get_temp_download_path()
         dest_path = self.get_dest_download_path()
         max_attempts = config.DOWNLOAD_MAX_ATTEMPTS

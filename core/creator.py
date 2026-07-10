@@ -23,6 +23,9 @@ DEFAULT_CREATOR_CONFIG_TEMPLATE = os.path.join(os.path.dirname(__file__), 'creat
 
 class Creator:
     def __init__(self, service: str, id: str):
+        """Fetches the creator's profile, then loads its per-creator config and known file
+        hashes. Raises RuntimeError if the creator can't be found."""
+
         data = get_creator_data(service, id)
         if not data:
             raise RuntimeError(f"Could not find creator: {service} - {id}")
@@ -43,6 +46,9 @@ class Creator:
         return os.path.join(app_config.CONFIG_DIR, 'creators', f'{self.service}_{self.id}.conf')
 
     def load_config(self):
+        """Reads this creator's .conf (creating it from the template if missing) and applies
+        each setting as an instance attribute."""
+
         path = self._config_path()
 
         if not os.path.exists(path):
@@ -59,14 +65,18 @@ class Creator:
             logger.info("Both INCLUDE_REGEX and EXCLUDE_REGEX are set - EXCLUDE_REGEX will be ignored")
 
     def save_config(self):
-        """Writes this creator's current settings out to its .conf file - called from unpack()
-        whenever a new archive password is learned."""
+        """Writes this creator's settings to its .conf file. Also called from unpack() when a
+        new archive password is learned."""
+
         path = self._config_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
         values = {entry: self.__dict__[entry] for entry in CREATOR_CONFIG_SCHEMA}
         conf.write(path, DEFAULT_CREATOR_CONFIG_TEMPLATE, values)
 
     def load_files(self):
+        """Loads this creator's known file hashes into self.hashes for dedup - not the full
+        file records, just the hashes."""
+
         total, archive_count = db.count_files_for_creator(self.service, self.id)
         if total == 0:
             logger.debug(f"Couldnt load any existing files")
@@ -76,26 +86,30 @@ class Creator:
         self.hashes = db.get_creator_hashes(self.service, self.id)
 
     def save_file(self, file: File):
+        """Inserts `file` into the DB and sets its `.id` in place."""
+
         file.id = db.insert_file(file)
     
     def detect_files_in_post(self, post: dict) -> tuple[list[File], int]:
+        """Collects the post's thumbnail, attachments, and (if allowed) embedded images into
+        File objects, applying ALLOWED_TYPES/ALLOWED_EXTENSIONS. Returns (files, skipped
+        count) - does not check against already-downloaded hashes."""
+
         file_datas = []
         index = 0
 
-        # Thumbnail detection
         if 'file' in post and post['file'] and 'path' in post['file']:
             file_data = post['file']
             file_datas.append((file_data['path'], file_data.get('name', ''), index, 'thumbnail'))
             index += 1
 
-        # Attachments detection
         if 'attachments' in post:
             for attachment in post['attachments']:
                 if isinstance(attachment, dict) and 'path' in attachment:
                     file_datas.append((attachment['path'], attachment.get('name', ''), index, 'attachment'))
                     index += 1
 
-        # Content images detection
+        # Embeds require an extra API call - full post content isn't in the post-list response.
         if (not self.ALLOWED_TYPES or 'embed' in self.ALLOWED_TYPES) and 'substring' in post and post['substring']:
             post_data = get_post_data(post['service'], post['user'], post['id'])
 
@@ -156,6 +170,10 @@ class Creator:
         return (files, skipped)
 
     def download(self):
+        """Fetches all posts, detects and filters their files (INCLUDE/EXCLUDE_REGEX on the
+        post title, hash dedup against self.hashes), then downloads what's new. A file with no
+        publish date borrows a neighboring post's date as a fallback."""
+
         logger.info(f"Fetching creator posts...")
         posts = get_all_posts_from_creator(self.service, self.id)
 
@@ -232,6 +250,9 @@ class Creator:
         return results
 
     def download_file(self, file: File) -> bool:
+        """Downloads and records one file, auto-extracting it if it's an archive. On extraction
+        failure, deletes the archive (to retry next run) unless KEEP_FAILED_ARCHIVES is set."""
+
         if not file.download():
             logger.error(f"Download failed -> {file.get_dest_download_path()}")
             failure_logger.error(json.dumps(file.get_data()))
@@ -261,6 +282,11 @@ class Creator:
         return True
 
     def unpack(self, file: File) -> bool:
+        """Extracts `file`'s archive, trying kemono's known password for its hash before
+        ARCHIVE_PASSWORDS. A newly discovered password is persisted via save_config(). Each
+        extracted entry is recorded as its own File, skipping ones that duplicate an existing
+        hash or have a disallowed extension."""
+
         files = []
         passwords = []
 

@@ -8,8 +8,9 @@ ua = UserAgent()
 user_agent = ua.chrome
 
 def get_domain_config() -> dict:
-    """Built fresh from core.config's current values every call, so a change made through the
-    (future) API is picked up on the very next call - no manual resyncing needed."""
+    """Builds the domain, API, and file URLs from the current DOMAIN/FILE_DOMAIN/
+    FILE_PATH_PREFIX config values."""
+
     domain = config.DOMAIN
     file_domain = config.FILE_DOMAIN or domain
     return {
@@ -36,6 +37,9 @@ SESSION.mount('http://', _adapter)
 SESSION.mount('https://', _adapter)
 
 def call_api(api_call: str, timeout: int = 15, max_attempts: int = 7, additional_headers: dict = {}) -> str:
+    """GETs `api_call` relative to the API base, retrying with exponential backoff. Returns the
+    (auto-decompressed) response text, or None on a 404, empty body, or exhausted retries."""
+
     domain_config = get_domain_config()
     url = f"{domain_config['api_base']}/{api_call}"
     headers = get_headers()
@@ -85,8 +89,9 @@ def call_api(api_call: str, timeout: int = 15, max_attempts: int = 7, additional
     return None
 
 def call_api_action(api_call: str, method: str = 'POST', timeout: int = 15, max_attempts: int = 3) -> bool:
-    """For write-style endpoints (favorite/unfavorite, etc.) that return no useful body -
-    success is judged by status code alone, unlike call_api()'s text-returning read path."""
+    """For write-style endpoints (favorite/unfavorite, etc.): success is judged by status code
+    alone, unlike call_api()'s text-returning read path."""
+
     domain_config = get_domain_config()
     url = f"{domain_config['api_base']}/{api_call}"
     headers = get_headers()

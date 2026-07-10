@@ -9,8 +9,9 @@ from core.management.album_creator import trigger_album_creator
 logger = logging.getLogger("downloader")
 
 def resolve_creators(creators_from_data: bool, creator_url_filepath: str) -> list[tuple[str, str]]:
-    """Existing three-way source resolution, unchanged - reconcile.py always sources from disk
-    instead (see reconcile.py)."""
+    """Resolves which creators to process: CREATORS_FROM_DATA, then CREATOR_URL_FILE, then
+    favorites - only one source is used per run."""
+
     if creators_from_data:
         logger.info(f"Discovering creators from {config.DATA_DIR}...")
         creators_info = get_creators_from_data_dir()
@@ -35,6 +36,9 @@ def resolve_creators(creators_from_data: bool, creator_url_filepath: str) -> lis
     return creators_info
 
 def main():
+    """Downloads every resolved creator in turn. A single creator's failure is logged and
+    skipped rather than aborting the rest of the run."""
+
     if not config.SESSION_COOKIE:
         logger.critical("No session cookie has been provided")
         exit(1)

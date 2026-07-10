@@ -47,6 +47,9 @@ CREATE INDEX IF NOT EXISTS idx_files_post ON files(creator_service, creator_id, 
 """
 
 def get_connection() -> sqlite3.Connection:
+    """Returns the process-wide connection, opening it (WAL mode, foreign keys on, schema
+    applied) on first call."""
+
     global _connection
     if _connection is None:
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
@@ -104,7 +107,8 @@ def path_exists_in_db(path: str) -> bool:
     return row is not None
 
 def _file_row_to_dict(row: sqlite3.Row) -> dict:
-    """Maps a `files` row to a dict usable as `File(...)` constructor input (renames file_index -> index)."""
+    """Maps a `files` row to `File(...)` constructor kwargs (renames file_index -> index)."""
+
     data = dict(row)
     data['index'] = data.pop('file_index')
     return data
@@ -125,6 +129,8 @@ def delete_file(file_id: int):
     conn.commit()
 
 def count_files_for_creator(service: str, id: str) -> tuple[int, int]:
+    """Returns (total file count, archive-type file count) for a creator."""
+
     conn = get_connection()
     total = conn.execute("SELECT COUNT(*) FROM files WHERE creator_service=? AND creator_id=?", (service, id)).fetchone()[0]
     archive = conn.execute("SELECT COUNT(*) FROM files WHERE creator_service=? AND creator_id=? AND type='archive'", (service, id)).fetchone()[0]

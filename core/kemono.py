@@ -4,10 +4,15 @@ from .network import call_api, call_api_action
 
 logger = logging.getLogger("downloader")
 
+# Thin wrappers around kemono's REST API endpoints - all return {}/[]/False on failure instead
+# of raising, so callers don't need try/except for a downed or rate-limiting API.
+
 def add_favorite_creator(service: str, creator_id: str) -> bool:
     return call_api_action(f"favorites/creator/{service}/{creator_id}", method='POST')
 
 def get_favorite_creators(timeout: int = 15, max_attempts: int = 7) -> list[dict]:
+    """Fetches the current user's favorited creators (type=artist - not favorited posts)."""
+
     response = call_api(f"account/favorites?type=artist", timeout, max_attempts)
 
     if not response:
@@ -34,6 +39,10 @@ def get_creator_data(service: str, creator_id: str, timeout: int = 15, max_attem
         return {}
 
 def get_all_posts_from_creator(service: str, creator_id: str, page_size: int = 50, max_pages: int = 200, timeout: int = 15, max_attempts: int = 3) -> list[dict]:
+    """Paginates through a creator's posts via `offset`, trying a few URL/parameter variants
+    per page for compatibility across kemono versions/mirrors. Stops at max_pages or the first
+    short page."""
+
     posts = []
 
     base_request = f"{service}/user/{creator_id}"
@@ -107,6 +116,8 @@ def get_post_data(service: str, creator_id: str, post_id: str, timeout: int = 10
         return {}
 
 def get_post_by_file_hash(file_hash: str, timeout: int = 10, max_attempts: int = 7) -> dict:
+    """Looks up the post containing a file, by the file's hash, via the search_hash endpoint."""
+
     response = call_api(f"search_hash/{file_hash}", timeout, max_attempts)
 
     if not response:
@@ -120,10 +131,13 @@ def get_post_by_file_hash(file_hash: str, timeout: int = 10, max_attempts: int =
         return {}
     
 def get_file_data(hash: str, timeout: int = 10, max_attempts: int = 7) -> dict:
+    """Looks up a file's known metadata by hash - used to check for a known archive password
+    before falling back to ARCHIVE_PASSWORDS."""
+
     response = call_api(f"file/{hash}", timeout, max_attempts)
 
     if not response:
-        #logger.warning(f"Failed retrieving file data -> {hash}")
+        # No warning here: most files have no known password, so this 404s constantly.
         return {}
     
     try:

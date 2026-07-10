@@ -21,7 +21,7 @@ SCHEMA = {
 }
 
 DOMAIN = 'kemono.cr'
-FILE_DOMAIN = ''               # empty => falls back to DOMAIN, see network.get_domain_config()
+FILE_DOMAIN = ''
 FILE_PATH_PREFIX = ''
 CREATOR_URL_FILE = ''
 CREATORS_FROM_DATA = False
@@ -35,6 +35,8 @@ DOWNLOAD_MAX_ATTEMPTS = 60
 DOWNLOAD_RETRY_DELAY = 1
 
 def _prune_old_logs(retention_days: int):
+    """Deletes files older than retention_days from both config/logs and config/failed."""
+
     if retention_days <= 0:
         return
     cutoff = time.time() - retention_days * 86400
@@ -45,6 +47,9 @@ def _prune_old_logs(retention_days: int):
                 os.remove(filepath)
 
 def _setup_loggers(log_level: str, log_retention_days: int):
+    """Prunes old log/failure files, then attaches stdout + file handlers to the downloader and
+    failure loggers."""
+
     log_format = "[%(asctime)s] %(levelname)s: %(message)s"
     date_format = '%y-%m-%d %H:%M:%S'
     numeric_level = getattr(logging, log_level.upper(), None)
@@ -71,10 +76,9 @@ def _setup_loggers(log_level: str, log_retention_days: int):
     failure_logger.addHandler(failure_h)
 
 def load():
-    """Reads config.conf into this module's globals, bootstrapping the file from the shipped
-    default template if it doesn't exist yet. Re-callable later (e.g. by the future API, to pick
-    up a hand-edited file) - does NOT touch SESSION_COOKIE, which is only ever set once, from the
-    env var, as part of the automatic init below (an env var only changes on a restart anyway)."""
+    """Loads config.conf into this module's globals, creating it from the default template if
+    missing."""
+
     global DOMAIN, FILE_DOMAIN, FILE_PATH_PREFIX, CREATOR_URL_FILE, CREATORS_FROM_DATA, \
            LOG_LEVEL, LOG_RETENTION_DAYS, CRON_EXPRESSION, RUN_IMMEDIATELY, \
            TRIGGER_ALBUM_CREATOR, ALBUM_CREATOR_WEBHOOK_URL, \
@@ -104,9 +108,8 @@ def load():
     DOWNLOAD_MAX_ATTEMPTS = data['DOWNLOAD_MAX_ATTEMPTS']
     DOWNLOAD_RETRY_DELAY = data['DOWNLOAD_RETRY_DELAY']
 
-# --- Runs automatically the moment anything imports core.config - guaranteed to happen before
-# any importing script's own code runs, so every entry point gets dirs/config/logging ready for
-# free just by doing `from core import config`. No network-init step here - see network.py. ---
+# Runs on import, before any entry point's own code, so every script gets dirs/config/logging
+# for free via `from core import config`.
 os.makedirs(CONFIG_DIR, exist_ok=True)
 os.makedirs(f"{CONFIG_DIR}/logs", exist_ok=True)
 os.makedirs(f"{CONFIG_DIR}/failed", exist_ok=True)
@@ -117,4 +120,3 @@ os.makedirs(TEMP_DIR, exist_ok=True)
 
 load()
 _setup_loggers(LOG_LEVEL, LOG_RETENTION_DAYS)
-# --- end automatic init ---
