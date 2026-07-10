@@ -43,7 +43,8 @@ def recursive_move(source_folder: str, destination_folder: str, index: int = 0) 
             if entry.is_dir():
                 sub_files = recursive_move(entry.path, destination_folder, index)
                 files.extend(sub_files[0])
-                index += sub_files[1]
+                index = sub_files[1]  # the recursive call's return is already the next free
+                                       # index, not a count to add to this call's own index
             else:
                 filepath = os.path.join(destination_folder, f"{index:03d}{os.path.splitext(entry.path)[1].lower()}")
                 shutil.move(entry.path, filepath)
@@ -57,22 +58,7 @@ def unzip(filepath: str, directory: str, password: str):
     """Extracts a .zip to `directory`, falling back to pyzipper for AES-encrypted zips the
     standard library can't read. Raises RuntimeError on a wrong or missing password."""
 
-    try:
-        with zipfile.ZipFile(filepath, 'r') as archive:
-            if password:
-                archive.setpassword(bytes(password, 'utf-8'))
-            archive.testzip()
-            _ensure_safe_archive_paths(archive.namelist(), directory)
-            archive.extractall(directory)
-
-    except UnsafeArchivePath:
-        raise
-    except RuntimeError:
-        if password:
-            raise RuntimeError(f"Password incorrect -> {password}")
-        else:
-            raise RuntimeError("Password may be required")
-    except Exception:
+    def _aes_fallback():
         if os.path.exists(directory):
             shutil.rmtree(directory, ignore_errors=True)
 
@@ -90,6 +76,29 @@ def unzip(filepath: str, directory: str, password: str):
             else:
                 raise RuntimeError("Password may be required")
 
+    try:
+        with zipfile.ZipFile(filepath, 'r') as archive:
+            if password:
+                archive.setpassword(bytes(password, 'utf-8'))
+            archive.testzip()
+            _ensure_safe_archive_paths(archive.namelist(), directory)
+            archive.extractall(directory)
+
+    except UnsafeArchivePath:
+        raise
+    except NotImplementedError:
+        # A RuntimeError subclass raised by the standard library for AES-encrypted zips it
+        # can't decrypt - not an actual wrong-password signal, so this needs its own clause
+        # ahead of the plain RuntimeError one below, or it would be misreported as such.
+        _aes_fallback()
+    except RuntimeError:
+        if password:
+            raise RuntimeError(f"Password incorrect -> {password}")
+        else:
+            raise RuntimeError("Password may be required")
+    except Exception:
+        _aes_fallback()
+
 def unrar(filepath: str, directory: str, password: str):
     """Extracts a .rar to `directory`. Raises RuntimeError on a wrong or missing password."""
 
@@ -101,7 +110,11 @@ def unrar(filepath: str, directory: str, password: str):
             _ensure_safe_archive_paths(archive.namelist(), directory)
             archive.extractall(directory)
 
-    except RuntimeError:
+    except (RuntimeError, rarfile.Error):
+        # rarfile raises its own exception types (BadRarFile, PasswordRequired,
+        # RarWrongPassword, ...) for a wrong/missing password, none of which are RuntimeError
+        # subclasses - without this, Creator.unpack()'s "try the next password" loop would
+        # abort instead of continuing past the first wrong .rar password.
         if password:
             raise RuntimeError(f"Password incorrect -> {password}")
         else:
