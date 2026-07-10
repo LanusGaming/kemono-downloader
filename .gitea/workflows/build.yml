@@ -21,13 +21,11 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential python3-dev libomp-dev
-          # unrar, for .rar-extraction tests - same non-free-repo dance as the Dockerfile's
-          # runtime stage, since the plain Ubuntu/Debian repos only carry unrar-free
-          CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
-          echo "deb http://deb.debian.org/debian ${CODENAME} main non-free" | sudo tee /etc/apt/sources.list.d/non-free.list
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends unrar rar
+          # unrar/rar, for .rar-extraction tests, are the real (non-free) archivers - unlike
+          # Debian, Ubuntu ships them straight from its own multiverse component (already
+          # enabled on the runner image), so no extra repo is needed here like in the
+          # Dockerfile's Debian-based runtime stage.
+          sudo apt-get install -y --no-install-recommends build-essential python3-dev libomp-dev unrar rar
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt -r requirements-test.txt
