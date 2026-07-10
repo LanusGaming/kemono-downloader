@@ -39,18 +39,24 @@ def recursive_move(source_folder: str, destination_folder: str, index: int = 0) 
 
     files = []
     with os.scandir(source_folder) as dir:
-        for entry in dir:
-            if entry.is_dir():
-                sub_files = recursive_move(entry.path, destination_folder, index)
-                files.extend(sub_files[0])
-                index = sub_files[1]  # the recursive call's return is already the next free
-                                       # index, not a count to add to this call's own index
-            else:
-                filepath = os.path.join(destination_folder, f"{index:03d}{os.path.splitext(entry.path)[1].lower()}")
-                shutil.move(entry.path, filepath)
-                files.append((filepath, sanitize_filename(entry.name)))
+        entries = sorted(dir, key=lambda entry: entry.name)
 
-                index += 1
+    # Files in this directory are numbered before descending into subdirectories, so sibling
+    # ordering doesn't depend on filesystem iteration order (os.scandir gives no guarantees).
+    for entry in entries:
+        if not entry.is_dir():
+            filepath = os.path.join(destination_folder, f"{index:03d}{os.path.splitext(entry.path)[1].lower()}")
+            shutil.move(entry.path, filepath)
+            files.append((filepath, sanitize_filename(entry.name)))
+
+            index += 1
+
+    for entry in entries:
+        if entry.is_dir():
+            sub_files = recursive_move(entry.path, destination_folder, index)
+            files.extend(sub_files[0])
+            index = sub_files[1]  # the recursive call's return is already the next free
+                                   # index, not a count to add to this call's own index
 
     return (files, index)
 
