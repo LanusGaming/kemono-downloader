@@ -1,4 +1,4 @@
-import os, logging, re, shutil
+import json, os, logging, re, shutil
 from bs4 import BeautifulSoup
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -234,7 +234,7 @@ class Creator:
     def download_file(self, file: File) -> bool:
         if not file.download():
             logger.error(f"Download failed -> {file.get_dest_download_path()}")
-            failure_logger.error(file.get_data())
+            failure_logger.error(json.dumps(file.get_data()))
             return False
 
         logger.debug(f"Saving file data... -> {file.path}")
@@ -246,7 +246,7 @@ class Creator:
 
             if not self.unpack(file):
                 logger.error(f"Extraction failed -> {file.path}")
-                failure_logger.error(file.get_data())
+                failure_logger.error(json.dumps(file.get_data()))
                 if self.KEEP_FAILED_ARCHIVES:
                     logger.info(f"Keeping failed archive (KEEP_FAILED_ARCHIVES=true) -> {file.path}")
                 else:
