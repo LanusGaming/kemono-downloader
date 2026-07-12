@@ -64,9 +64,9 @@ class File:
     
     def download(self) -> bool:
         """Downloads self.url to a temp path and moves it to its destination on success,
-        retrying up to DOWNLOAD_MAX_ATTEMPTS times. A 503 fails immediately with no retry; a
-        502 always waits 5s regardless of DOWNLOAD_RETRY_DELAY. Sets self.path/self.hash on
-        success."""
+        retrying up to DOWNLOAD_MAX_ATTEMPTS times. A 404 fails immediately with no retry (the
+        file isn't imported on the mirror yet); a 502 always waits 5s regardless of
+        DOWNLOAD_RETRY_DELAY. Sets self.path/self.hash on success."""
 
         temp_path = self.get_temp_download_path()
         dest_path = self.get_dest_download_path()
@@ -89,8 +89,8 @@ class File:
                 break
             
             except Exception as e:
-                if isinstance(e, HTTPError) and e.response.status_code == 503:
-                    logger.warning(f"Skipping retries (503) -> {dest_path}")
+                if isinstance(e, HTTPError) and e.response.status_code == 404:
+                    logger.warning(f"Skipping retries (404) -> {dest_path}")
                     if os.path.exists(temp_path):
                         os.remove(temp_path)
                     return False

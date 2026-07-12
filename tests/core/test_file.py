@@ -35,10 +35,10 @@ def test_get_data_round_trips_with_init():
     assert File(data).get_data() == data
 
 
-def test_download_503_fails_immediately_with_no_retry(tmp_dirs, requests_mock, monkeypatch):
+def test_download_404_fails_immediately_with_no_retry(tmp_dirs, requests_mock, monkeypatch):
     monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 60)
     file = make_file()
-    requests_mock.get(file.url, status_code=503)
+    requests_mock.get(file.url, status_code=404)
 
     result = file.download()
 

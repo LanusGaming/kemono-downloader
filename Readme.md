@@ -122,7 +122,7 @@ logged).
 | `RUN_IMMEDIATELY` | `false` | Also run once at startup, in addition to the cron schedule. Has no effect if `CRON_EXPRESSION` is empty. |
 | `TRIGGER_ALBUM_CREATOR` | `false` | POST a webhook after each run finishes. See [Album-Creator Integration](#album-creator-integration). |
 | `ALBUM_CREATOR_WEBHOOK_URL` | `http://album-creator:8080/run` | Webhook URL used when `TRIGGER_ALBUM_CREATOR` is enabled. |
-| `DOWNLOAD_MAX_ATTEMPTS` | `60` | Max attempts per file download before giving up. An HTTP 503 always skips straight to giving up, regardless of this value. |
+| `DOWNLOAD_MAX_ATTEMPTS` | `60` | Max attempts per file download before giving up. An HTTP 404 always skips straight to giving up, regardless of this value. |
 | `DOWNLOAD_RETRY_DELAY` | `1` | Seconds to wait between retry attempts (a 502 always waits 5s instead). |
 
 ### Per-Creator Config (`config/creators/<service>_<id>.conf`)
