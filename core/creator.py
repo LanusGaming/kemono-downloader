@@ -24,11 +24,15 @@ DEFAULT_CREATOR_CONFIG_TEMPLATE = os.path.join(os.path.dirname(__file__), 'creat
 class Creator:
     def __init__(self, service: str, id: str):
         """Fetches the creator's profile, then loads its per-creator config and known file
-        hashes. Raises RuntimeError if the creator can't be found."""
+        hashes. Raises RuntimeError if the creator can't be found, or if the profile has an
+        `ever_imported` field (some mirrors only) that's explicitly False."""
 
         data = get_creator_data(service, id)
         if not data:
             raise RuntimeError(f"Could not find creator: {service} - {id}")
+
+        if 'ever_imported' in data and not data['ever_imported']:
+            raise RuntimeError(f"Creator not yet imported: {service} - {id}")
 
         self.name = sanitize_filename(data['name'])
         self.service = data['service']
@@ -170,9 +174,10 @@ class Creator:
         return (files, skipped)
 
     def download(self):
-        """Fetches all posts, detects and filters their files (INCLUDE/EXCLUDE_REGEX on the
-        post title, hash dedup against self.hashes), then downloads what's new. A file with no
-        publish date borrows a neighboring post's date as a fallback."""
+        """Fetches all posts, detects and filters their files (has_full=False skip, then
+        INCLUDE/EXCLUDE_REGEX on the post title, then hash dedup against self.hashes), then
+        downloads what's new. A file with no publish date borrows a neighboring post's date as a
+        fallback."""
 
         logger.info(f"Fetching creator posts...")
         posts = get_all_posts_from_creator(self.service, self.id)
@@ -182,7 +187,14 @@ class Creator:
 
         files = []
         skipped = {"attachments": 0, "regex": 0, "existing": 0}
+        not_imported = 0
         for i, post in enumerate(posts):
+            # Some mirrors mark posts whose files haven't been imported yet with has_full=False -
+            # kemono.cr itself has no such field, so only act on it when present.
+            if post.get('has_full') is False:
+                not_imported += 1
+                continue
+
             post_files, post_skipped = self.detect_files_in_post(post)
             skipped["attachments"] += post_skipped
 
@@ -225,7 +237,8 @@ class Creator:
                 db.upsert_post(self.service, self.id, post['id'], sanitize_filename(post['title']),
                                 get_post_time(post['published']) if post['published'] else None)
 
-        logger.info(f"Found {len(files) + sum(skipped.values())} files ({sum(skipped.values())} skipped - {skipped['attachments']} ATTACH - {skipped['regex']} REGEX - {skipped['existing']} EXIST)")
+        not_imported_note = f" - {not_imported} posts not yet imported" if not_imported else ""
+        logger.info(f"Found {len(files) + sum(skipped.values())} files ({sum(skipped.values())} skipped - {skipped['attachments']} ATTACH - {skipped['regex']} REGEX - {skipped['existing']} EXIST){not_imported_note}")
         if len(files) == 0:
             logger.info("Skipping...")
             time.sleep(3)

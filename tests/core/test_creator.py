@@ -31,6 +31,28 @@ def test_init_raises_if_creator_not_found(make_creator, monkeypatch):
         Creator('patreon', '111')
 
 
+def test_init_raises_if_ever_imported_is_false(make_creator, monkeypatch):
+    monkeypatch.setattr(creator_module, "get_creator_data", lambda *a, **k: {
+        'name': 'Someone', 'service': 'patreon', 'id': '111',
+        'updated': '2024-01-01T00:00:00.000000', 'ever_imported': False,
+    })
+
+    with pytest.raises(RuntimeError, match="not yet imported"):
+        Creator('patreon', '111')
+
+
+def test_init_succeeds_if_ever_imported_is_true(make_creator):
+    creator = make_creator(ever_imported=True)
+    assert creator.name == 'Someone'
+
+
+def test_init_succeeds_when_ever_imported_absent(make_creator):
+    # kemono.cr itself has no ever_imported field on its profile response - absence must not
+    # be treated as False.
+    creator = make_creator()
+    assert creator.name == 'Someone'
+
+
 def test_init_uses_last_imported_when_present(make_creator):
     creator = make_creator(last_imported='2025-01-01T00:00:00.000000', updated='ignored')
     assert creator.last_imported == '2025-01-01T00:00:00.000000'
@@ -131,6 +153,33 @@ def test_detect_files_filters_by_allowed_extensions(make_creator):
 
 
 # --- download() ---
+
+def test_download_skips_post_with_has_full_false(make_creator, monkeypatch):
+    creator = make_creator()
+    post = make_post(has_full=False, attachments=[{'path': '/data/a.jpg', 'name': 'a.jpg'}])
+    monkeypatch.setattr(creator_module, "get_all_posts_from_creator", lambda *a, **k: [post])
+    monkeypatch.setattr(creator_module.time, "sleep", lambda s: None)
+    downloaded = []
+    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: True for f in files})[1])
+
+    creator.download()
+
+    assert downloaded == []
+
+
+def test_download_does_not_skip_post_when_has_full_absent(make_creator, monkeypatch):
+    # kemono.cr itself has no has_full field on its posts - absence must not be treated as False.
+    creator = make_creator()
+    post = make_post(attachments=[{'path': '/data/a.jpg', 'name': 'a.jpg'}])
+    monkeypatch.setattr(creator_module, "get_all_posts_from_creator", lambda *a, **k: [post])
+    monkeypatch.setattr(creator_module.time, "sleep", lambda s: None)
+    downloaded = []
+    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: True for f in files})[1])
+
+    creator.download()
+
+    assert len(downloaded) == 1
+
 
 def test_download_exclude_regex_has_zero_effect_when_include_regex_set(make_creator, monkeypatch):
     creator = make_creator()
