@@ -312,3 +312,13 @@ DATA_DIR=./data CONFIG_DIR=./config TEMP_DIR=./temp SESSION_COOKIE=... python3 a
 ```
 Building the Cython extension needs a C compiler (`build-essential` on Debian/Ubuntu). `unrar` is
 only required to extract `.rar` archives — everything else works without it.
+
+## Testing
+```bash
+pip install -r requirements.txt -r requirements-test.txt
+cd ext && python3 dezip_setup.py build_ext --inplace && cd ..
+pytest --cov=core --cov=app --cov=download --cov=scheduler --cov=reconcile --cov-report=term-missing
+```
+`pytest.ini` blocks real network access (`--disable-socket`) so the suite can't accidentally hit
+kemono/mirror servers. CI runs this on every push and pull request as a required gate before the
+image is built and pushed.
