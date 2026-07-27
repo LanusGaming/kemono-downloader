@@ -129,6 +129,7 @@ logged).
 | `ALBUM_CREATOR_WEBHOOK_URL` | `http://album-creator:8080/run` | Webhook URL used when `TRIGGER_ALBUM_CREATOR` is enabled. |
 | `DOWNLOAD_MAX_ATTEMPTS` | `60` | Max attempts per file download before giving up. An HTTP 404 always skips straight to giving up, regardless of this value. |
 | `DOWNLOAD_RETRY_DELAY` | `1` | Seconds to wait between retry attempts (a 502 always waits 5s instead). |
+| `EXTERNAL_DRIVE_DELAY` | `1` | Seconds to wait before each Google Drive download request. Google rate-limits bursty download traffic per-IP; raise this if you're hitting that limit. |
 
 ### Per-Creator Config (`config/creators/<service>_<id>.conf`)
 Created automatically for each creator the first time it's processed, from
@@ -255,15 +256,15 @@ filtering (applied to the linked file's own name, once it's known).
   downloaded through it directly; only files not already recorded for that creator are selected.
   Mega's own *link-level* password feature (a `mega.nz/#P!...` URL — distinct from an archive
   password, and rare) isn't supported by `megatools` and is skipped with a warning.
-- **Downloads run in their own worker pools**, separate from the main kemono download pool and
-  from each other: Drive and kemono files share retry/backoff logic but are otherwise independent,
-  while Mega downloads are grouped by shared link (a whole folder link downloads in one
-  `megatools` invocation) and kept to a small pool, since Mega's anonymous bandwidth quota is
-  shared per-IP across all concurrent downloads — more workers there just exhausts the daily cap
-  faster rather than finishing faster.
-- A quota rejection (Drive's per-file quota, or Mega's bandwidth cap) fails that file immediately
-  without retrying within the run — both quotas reset on their own schedule, not by waiting a few
-  seconds — and shows up in the run summary as `external_quota_exceeded`.
+- **Drive and Mega downloads each run in their own small worker pool**, separate from the main
+  kemono pool and from each other, since both are rate-limited per-IP rather than per-file — more
+  concurrency there just trips the limit faster rather than finishing faster. Drive downloads are
+  also paced by `EXTERNAL_DRIVE_DELAY` between requests. Mega downloads are grouped by shared link
+  (a whole folder link downloads in one `megatools` invocation).
+- A quota rejection (Drive's per-file quota, Google's broader anti-automation block, or Mega's
+  bandwidth cap) fails that file immediately without retrying within the run — these reset on
+  their own schedule, not by waiting a few seconds — and shows up in the run summary as
+  `external_quota_exceeded`.
 
 ## Scheduling
 Controlled entirely by `CRON_EXPRESSION` and `RUN_IMMEDIATELY` in

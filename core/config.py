@@ -20,6 +20,7 @@ SCHEMA = {
     'CREATORS_FROM_DATA': bool, 'LOG_LEVEL': str, 'LOG_RETENTION_DAYS': int,
     'CRON_EXPRESSION': str, 'RUN_IMMEDIATELY': bool, 'TRIGGER_ALBUM_CREATOR': bool,
     'ALBUM_CREATOR_WEBHOOK_URL': str, 'DOWNLOAD_MAX_ATTEMPTS': int, 'DOWNLOAD_RETRY_DELAY': int,
+    'EXTERNAL_DRIVE_DELAY': int,
 }
 
 DOMAIN = 'kemono.cr'
@@ -35,6 +36,7 @@ TRIGGER_ALBUM_CREATOR = False
 ALBUM_CREATOR_WEBHOOK_URL = 'http://album-creator:8080/run'
 DOWNLOAD_MAX_ATTEMPTS = 60
 DOWNLOAD_RETRY_DELAY = 1
+EXTERNAL_DRIVE_DELAY = 1
 
 RUN_TIMESTAMP = ''  # set once in _setup_loggers() - shared by the log/failed/summary filenames
                      # for a run, so they can be correlated by name
@@ -91,7 +93,7 @@ def load():
     global DOMAIN, FILE_DOMAIN, FILE_PATH_PREFIX, CREATOR_URL_FILE, CREATORS_FROM_DATA, \
            LOG_LEVEL, LOG_RETENTION_DAYS, CRON_EXPRESSION, RUN_IMMEDIATELY, \
            TRIGGER_ALBUM_CREATOR, ALBUM_CREATOR_WEBHOOK_URL, \
-           DOWNLOAD_MAX_ATTEMPTS, DOWNLOAD_RETRY_DELAY
+           DOWNLOAD_MAX_ATTEMPTS, DOWNLOAD_RETRY_DELAY, EXTERNAL_DRIVE_DELAY
 
     if not os.path.exists(CONFIG_PATH):
         logger.info(f"No config.conf found - creating {CONFIG_PATH} from defaults")
@@ -116,6 +118,7 @@ def load():
     ALBUM_CREATOR_WEBHOOK_URL = data['ALBUM_CREATOR_WEBHOOK_URL']
     DOWNLOAD_MAX_ATTEMPTS = data['DOWNLOAD_MAX_ATTEMPTS']
     DOWNLOAD_RETRY_DELAY = data['DOWNLOAD_RETRY_DELAY']
+    EXTERNAL_DRIVE_DELAY = data['EXTERNAL_DRIVE_DELAY']
 
 def init():
     """Creates the config/data/temp directories (wiping and recreating TEMP_DIR), loads

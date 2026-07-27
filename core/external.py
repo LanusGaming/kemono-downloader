@@ -1,4 +1,4 @@
-import os, re, logging, subprocess
+import os, re, logging, subprocess, time
 import requests
 from bs4 import BeautifulSoup
 
@@ -167,6 +167,8 @@ def download_gdrive_file(file_id: str, dest_path: str) -> None:
     besides the documented "download quota exceeded" message, sustained use of one API key can
     also get a plain-HTML anti-abuse block with no machine-readable reason at all, so any 403 is
     treated as this rather than retried as a transient error."""
+
+    time.sleep(config.EXTERNAL_DRIVE_DELAY)
 
     try:
         r = requests.get(

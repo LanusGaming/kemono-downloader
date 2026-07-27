@@ -373,23 +373,31 @@ class Creator:
         return creator_summary
 
     def download_all_files(self, files: list[File], max_workers: int = 5,
-                            mega_max_workers: int = 2) -> dict[File, FileOutcome]:
-        """Downloads kemono and Google Drive files through the main pool, then Mega files -
-        grouped by their shared folder/file link, since a whole link downloads in one megatools
-        invocation - through a smaller pool. Mega gets fewer workers because its anonymous
-        bandwidth cap is shared per-IP across concurrent downloads, so more workers there just
-        burns through the daily cap faster rather than finishing faster."""
+                            gdrive_max_workers: int = 2, mega_max_workers: int = 2) -> dict[File, FileOutcome]:
+        """Downloads kemono files through the main pool, Google Drive files through a smaller
+        pool (Google rate-limits bursty download traffic per-IP), and Mega files - grouped by
+        their shared folder/file link, since a whole link downloads in one megatools invocation -
+        through another small pool, for the same per-IP bandwidth-cap reason."""
 
-        direct_files = [f for f in files if f.source != 'mega']
+        kemono_files = [f for f in files if f.source == 'kemono']
+        gdrive_files = [f for f in files if f.source == 'gdrive']
         mega_files = [f for f in files if f.source == 'mega']
 
         results = {}
         with ThreadPoolExecutor(max_workers=max_workers) as exe:
-            futures = {exe.submit(self.download_file, file): file for file in direct_files}
+            futures = {exe.submit(self.download_file, file): file for file in kemono_files}
 
             for fut in as_completed(futures):
                 file = futures[fut]
                 results[file] = fut.result()
+
+        if gdrive_files:
+            with ThreadPoolExecutor(max_workers=gdrive_max_workers) as exe:
+                futures = {exe.submit(self.download_file, file): file for file in gdrive_files}
+
+                for fut in as_completed(futures):
+                    file = futures[fut]
+                    results[file] = fut.result()
 
         if mega_files:
             by_link = {}

@@ -390,6 +390,27 @@ def test_download_missing_published_falls_back_to_now_when_no_neighbors(make_cre
     assert downloaded[0].published == 999999.0
 
 
+# --- download_all_files() ---
+
+def test_download_all_files_routes_kemono_and_gdrive_through_download_file_mega_through_link(make_creator, monkeypatch):
+    creator = make_creator()
+
+    direct_calls = []
+    monkeypatch.setattr(Creator, "download_file", lambda self, file: direct_calls.append(file) or FileOutcome('success'))
+    monkeypatch.setattr(Creator, "download_mega_link",
+                         lambda self, link, files: {f: FileOutcome('success') for f in files})
+
+    kemono_file = File({'source': 'kemono', 'url': 'https://kemono.cr/x', 'name': 'a.jpg', 'type': 'attachment'})
+    gdrive_file = File({'source': 'gdrive', 'ref_id': 'abc', 'name': 'b.zip', 'type': 'external'})
+    mega_file = File({'source': 'mega', 'ref_id': '', 'link_url': 'https://mega.nz/file/x#y', 'name': 'c.zip', 'type': 'external'})
+
+    results = creator.download_all_files([kemono_file, gdrive_file, mega_file])
+
+    assert set(direct_calls) == {kemono_file, gdrive_file}
+    assert all(outcome.status == 'success' for outcome in results.values())
+    assert set(results.keys()) == {kemono_file, gdrive_file, mega_file}
+
+
 # --- download_mega_link() ---
 
 def make_mega_file(creator, ref_id, link_url, **overrides):

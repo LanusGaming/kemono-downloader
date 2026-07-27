@@ -133,8 +133,21 @@ def test_list_gdrive_folder_recurses_and_skips_google_docs(monkeypatch, requests
     assert {e['id'] for e in entries} == {'f1', 'f2'}
 
 
+def test_download_gdrive_file_waits_external_drive_delay_before_requesting(monkeypatch, requests_mock, tmp_path):
+    monkeypatch.setattr(core.config, "GOOGLE_API_KEY", 'test-key')
+    monkeypatch.setattr(core.config, "EXTERNAL_DRIVE_DELAY", 2)
+    sleep_calls = []
+    monkeypatch.setattr(external.time, "sleep", lambda s: sleep_calls.append(s))
+    requests_mock.get('https://www.googleapis.com/drive/v3/files/abc123', status_code=200, content=b'data')
+
+    external.download_gdrive_file('abc123', str(tmp_path / "out"))
+
+    assert sleep_calls == [2]
+
+
 def test_download_gdrive_file_raises_quota_exceeded_on_documented_quota_message(monkeypatch, requests_mock):
     monkeypatch.setattr(core.config, "GOOGLE_API_KEY", 'test-key')
+    monkeypatch.setattr(core.config, "EXTERNAL_DRIVE_DELAY", 0)
     requests_mock.get(
         'https://www.googleapis.com/drive/v3/files/abc123',
         status_code=403, text='Download quota exceeded for this file',
@@ -148,6 +161,7 @@ def test_download_gdrive_file_raises_quota_exceeded_on_any_403_including_anti_ab
     # Real response captured live - Google's generic anti-bot block, not the documented
     # "download quota" message, and any 403 must be treated the same way.
     monkeypatch.setattr(core.config, "GOOGLE_API_KEY", 'test-key')
+    monkeypatch.setattr(core.config, "EXTERNAL_DRIVE_DELAY", 0)
     anti_abuse_html = (
         '<html><head><meta http-equiv="content-type" content="text/html; charset=utf-8"/>'
         '<title>Sorry...</title></head><body><div><table><tr><td><b><font face=sans-serif '
