@@ -134,7 +134,7 @@ def test_list_gdrive_folder_recurses_and_skips_google_docs(monkeypatch, requests
     assert {e['id'] for e in entries} == {'f1', 'f2'}
 
 
-def test_download_gdrive_file_raises_quota_exceeded(monkeypatch, requests_mock):
+def test_download_gdrive_file_raises_quota_exceeded_on_documented_quota_message(monkeypatch, requests_mock):
     monkeypatch.setattr(core.config, "GOOGLE_API_KEY", 'test-key')
     requests_mock.get(
         'https://www.googleapis.com/drive/v3/files/abc123',
@@ -142,6 +142,27 @@ def test_download_gdrive_file_raises_quota_exceeded(monkeypatch, requests_mock):
     )
 
     with pytest.raises(QuotaExceededError):
+        external.download_gdrive_file('abc123', '/tmp/whatever')
+
+
+def test_download_gdrive_file_raises_quota_exceeded_on_any_403_including_anti_abuse_page(monkeypatch, requests_mock):
+    # Real response captured live - Google's generic anti-bot block, not the documented
+    # "download quota" message, and any 403 must be treated the same way.
+    monkeypatch.setattr(core.config, "GOOGLE_API_KEY", 'test-key')
+    anti_abuse_html = (
+        '<html><head><meta http-equiv="content-type" content="text/html; charset=utf-8"/>'
+        '<title>Sorry...</title></head><body><div><table><tr><td><b><font face=sans-serif '
+        'size=10><font color=#4285f4>G</font></font></b></td></tr></table></div>'
+        '<div style="margin-left: 4em;"><h1>We\'re sorry...</h1>'
+        '<p>... but your computer or network may be sending automated queries. To protect our '
+        'users, we can\'t process your request right now.</p></div></body></html>'
+    )
+    requests_mock.get(
+        'https://www.googleapis.com/drive/v3/files/abc123',
+        status_code=403, text=anti_abuse_html, headers={'Content-Type': 'text/html; charset=UTF-8'},
+    )
+
+    with pytest.raises(QuotaExceededError, match="automated queries"):
         external.download_gdrive_file('abc123', '/tmp/whatever')
 
 

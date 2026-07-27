@@ -177,9 +177,11 @@ def _gdrive_list_folder(folder_id: str) -> list[dict]:
     return entries
 
 def download_gdrive_file(file_id: str, dest_path: str) -> None:
-    """Streams a Drive file to dest_path via alt=media - the API download path, which (unlike
-    the web UI) has no large-file virus-scan-warning confirmation step to work around. Raises
-    QuotaExceededError on Drive's per-file download-quota rejection."""
+    """Streams a Drive file to dest_path via alt=media - unlike the web UI, this API path has no
+    large-file virus-scan-warning step to work around. Raises QuotaExceededError on any 403:
+    besides the documented "download quota exceeded" message, sustained use of one API key can
+    also get a plain-HTML anti-abuse block with no machine-readable reason at all, so any 403 is
+    treated as this rather than retried as a transient error."""
 
     try:
         r = requests.get(
@@ -188,8 +190,13 @@ def download_gdrive_file(file_id: str, dest_path: str) -> None:
             stream=True, timeout=3600,
         )
 
-        if r.status_code == 403 and 'download quota' in r.text.lower():
-            raise QuotaExceededError(f"Google Drive per-file download quota exceeded -> {file_id}")
+        if r.status_code == 403:
+            # The anti-abuse block is an HTML page, not JSON - pull its text out for the log.
+            if 'html' in r.headers.get('Content-Type', ''):
+                reason = ' '.join(BeautifulSoup(r.text, 'html.parser').stripped_strings)[:200]
+            else:
+                reason = r.text.strip().replace('\n', ' ')[:200]
+            raise QuotaExceededError(f"Google Drive rejected the download (403) -> {file_id}: {reason}")
 
         r.raise_for_status()
 
