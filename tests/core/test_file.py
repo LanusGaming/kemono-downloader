@@ -6,6 +6,7 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 import core.config
 import core.file
 from core.file import DEFAULT_FILE, File
+from core.summary import NotFoundError, DownloadTimeoutError
 
 
 def make_file(**overrides) -> File:
@@ -40,9 +41,9 @@ def test_download_404_fails_immediately_with_no_retry(tmp_dirs, requests_mock, m
     file = make_file()
     requests_mock.get(file.url, status_code=404)
 
-    result = file.download()
+    with pytest.raises(NotFoundError):
+        file.download()
 
-    assert result is False
     assert requests_mock.call_count == 1
     assert not os.path.exists(file.get_temp_download_path())
 
@@ -59,9 +60,8 @@ def test_download_502_always_waits_5s_regardless_of_retry_delay(tmp_dirs, reques
         {'status_code': 200, 'content': b'file-bytes'},
     ])
 
-    result = file.download()
+    file.download()
 
-    assert result is True
     assert sleep_calls == [5]  # not DOWNLOAD_RETRY_DELAY's 1
 
 
@@ -74,9 +74,9 @@ def test_download_generic_error_retries_using_retry_delay_until_exhausted(tmp_di
     file = make_file()
     requests_mock.get(file.url, exc=RequestsConnectionError("boom"))
 
-    result = file.download()
+    with pytest.raises(DownloadTimeoutError):
+        file.download()
 
-    assert result is False
     assert requests_mock.call_count == 3
     assert sleep_calls == [2, 2]  # slept between attempts, not after the last one
     assert not os.path.exists(file.get_temp_download_path())
@@ -87,9 +87,8 @@ def test_download_success_sets_hash_and_moves_file(tmp_dirs, requests_mock, monk
     file = make_file()
     requests_mock.get(file.url, status_code=200, content=b'hello world')
 
-    result = file.download()
+    file.download()
 
-    assert result is True
     assert os.path.exists(file.path)
     assert file.path == file.get_dest_download_path()
 

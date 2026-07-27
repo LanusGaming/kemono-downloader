@@ -1,6 +1,7 @@
 import pytest
 
 import download
+from core.summary import CreatorSummary
 
 
 # --- resolve_creators(): true precedence, not just isolated branches ---
@@ -71,6 +72,7 @@ def test_main_continues_batch_after_one_creator_fails(tmp_dirs, monkeypatch):
 
         def download(self):
             downloaded.append(self.id)
+            return CreatorSummary(service=self.service, id=self.id, status='no_new_files')
 
     monkeypatch.setattr(download, "Creator", FakeCreator)
 

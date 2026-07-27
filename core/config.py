@@ -34,13 +34,16 @@ ALBUM_CREATOR_WEBHOOK_URL = 'http://album-creator:8080/run'
 DOWNLOAD_MAX_ATTEMPTS = 60
 DOWNLOAD_RETRY_DELAY = 1
 
+RUN_TIMESTAMP = ''  # set once in _setup_loggers() - shared by the log/failed/summary filenames
+                     # for a run, so they can be correlated by name
+
 def _prune_old_logs(retention_days: int):
     """Deletes files older than retention_days from both config/logs and config/failed."""
 
     if retention_days <= 0:
         return
     cutoff = time.time() - retention_days * 86400
-    for dirpath in (f"{CONFIG_DIR}/logs", f"{CONFIG_DIR}/failed"):
+    for dirpath in (f"{CONFIG_DIR}/logs", f"{CONFIG_DIR}/failed", f"{CONFIG_DIR}/summary"):
         for filename in os.listdir(dirpath):
             filepath = os.path.join(dirpath, filename)
             if os.path.isfile(filepath) and os.path.getmtime(filepath) < cutoff:
@@ -50,6 +53,8 @@ def _setup_loggers(log_level: str, log_retention_days: int):
     """Prunes old log/failure files, then attaches stdout + file handlers to the downloader and
     failure loggers."""
 
+    global RUN_TIMESTAMP
+
     log_format = "[%(asctime)s] %(levelname)s: %(message)s"
     date_format = '%y-%m-%d %H:%M:%S'
     numeric_level = getattr(logging, log_level.upper(), None)
@@ -58,19 +63,21 @@ def _setup_loggers(log_level: str, log_retention_days: int):
 
     _prune_old_logs(log_retention_days)
 
+    RUN_TIMESTAMP = time.strftime(date_format)
+
     logger.setLevel(logging.DEBUG)
     stdout_h = logging.StreamHandler(sys.stdout)
     stdout_h.setLevel(numeric_level)
     stdout_h.setFormatter(logging.Formatter(log_format, date_format))
     logger.addHandler(stdout_h)
 
-    file_h = logging.FileHandler(f"{CONFIG_DIR}/logs/{time.strftime(date_format)}.log", mode='w', encoding="utf-8")
+    file_h = logging.FileHandler(f"{CONFIG_DIR}/logs/{RUN_TIMESTAMP}.log", mode='w', encoding="utf-8")
     file_h.setLevel(logging.DEBUG)
     file_h.setFormatter(logging.Formatter(log_format, date_format))
     logger.addHandler(file_h)
 
     failure_logger.setLevel(logging.DEBUG)
-    failure_h = logging.FileHandler(f"{CONFIG_DIR}/failed/{time.strftime(date_format)}.json", mode='w', encoding="utf-8")
+    failure_h = logging.FileHandler(f"{CONFIG_DIR}/failed/{RUN_TIMESTAMP}.json", mode='w', encoding="utf-8")
     failure_h.setLevel(logging.DEBUG)
     failure_h.setFormatter(logging.Formatter("%(message)s"))
     failure_logger.addHandler(failure_h)
@@ -116,6 +123,7 @@ def init():
     os.makedirs(CONFIG_DIR, exist_ok=True)
     os.makedirs(f"{CONFIG_DIR}/logs", exist_ok=True)
     os.makedirs(f"{CONFIG_DIR}/failed", exist_ok=True)
+    os.makedirs(f"{CONFIG_DIR}/summary", exist_ok=True)
     os.makedirs(DATA_DIR, exist_ok=True)
     if os.path.exists(TEMP_DIR):
         shutil.rmtree(TEMP_DIR, ignore_errors=True)
