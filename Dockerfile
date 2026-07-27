@@ -25,7 +25,7 @@ RUN set -eux; \
     echo "deb http://deb.debian.org/debian ${CODENAME}-updates main non-free" >> /etc/apt/sources.list.d/non-free.list; \
     echo "deb http://deb.debian.org/debian-security ${CODENAME}-security main non-free" >> /etc/apt/sources.list.d/non-free.list; \
     apt-get update; \
-    apt-get install -y --no-install-recommends ca-certificates unrar; \
+    apt-get install -y --no-install-recommends ca-certificates unrar megatools; \
     rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

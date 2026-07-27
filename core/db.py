@@ -77,6 +77,20 @@ def get_creator_hashes(service: str, id: str) -> set[str]:
     rows = conn.execute("SELECT hash FROM files WHERE creator_service=? AND creator_id=?", (service, id)).fetchall()
     return {row['hash'] for row in rows}
 
+def get_creator_external_urls(service: str, id: str) -> set[str]:
+    """Returns the `url` (a 'gdrive:<id>' / 'mega:<folder>:<path>' identity, not a real
+    download URL - see File's 'source'/'ref_id' fields) of every previously-recorded external
+    file for this creator. Used as the pre-download dedup check for Drive/Mega links, since
+    (unlike kemono's own URLs) neither platform's link encodes a content hash we could check
+    before fetching the bytes."""
+
+    conn = get_connection()
+    rows = conn.execute(
+        "SELECT url FROM files WHERE creator_service=? AND creator_id=? AND type='external'",
+        (service, id),
+    ).fetchall()
+    return {row['url'] for row in rows}
+
 def upsert_post(service: str, id: str, post_id: str, title: str, published: float):
     conn = get_connection()
     conn.execute("""

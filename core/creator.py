@@ -1,4 +1,4 @@
-import json, os, logging, re, shutil
+import hashlib, json, os, logging, re, shutil
 from bs4 import BeautifulSoup
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -11,6 +11,7 @@ from .utils import *
 from . import config as app_config
 from . import conf
 from . import db
+from . import external
 from . import summary
 from .summary import (
     DownloadError, ArchivePasswordMissingError, ArchivePasswordIncorrectError, ExtractionError,
@@ -85,7 +86,8 @@ class Creator:
 
     def load_files(self):
         """Loads this creator's known file hashes into self.hashes for dedup - not the full
-        file records, just the hashes."""
+        file records, just the hashes. Also loads self.external_urls, the pre-download dedup set
+        for 'external' (Drive/Mega) files - see File's 'source'/'ref_id' fields."""
 
         total, archive_count = db.count_files_for_creator(self.service, self.id)
         if total == 0:
@@ -94,6 +96,7 @@ class Creator:
         logger.info(f"Found {total} existing files ({archive_count} from archives)")
 
         self.hashes = db.get_creator_hashes(self.service, self.id)
+        self.external_urls = db.get_creator_external_urls(self.service, self.id)
 
     def save_file(self, file: File):
         """Inserts `file` into the DB and sets its `.id` in place."""
@@ -101,9 +104,10 @@ class Creator:
         file.id = db.insert_file(file)
     
     def detect_files_in_post(self, post: dict) -> tuple[list[File], int]:
-        """Collects the post's thumbnail, attachments, and (if allowed) embedded images into
-        File objects, applying ALLOWED_TYPES/ALLOWED_EXTENSIONS. Returns (files, skipped
-        count) - does not check against already-downloaded hashes."""
+        """Collects the post's thumbnail, attachments, (if allowed) embedded images, and (if
+        allowed) linked-out Google Drive/Mega files into File objects, applying
+        ALLOWED_TYPES/ALLOWED_EXTENSIONS. Returns (files, skipped count) - does not check against
+        already-downloaded hashes."""
 
         file_datas = []
         index = 0
@@ -119,19 +123,31 @@ class Creator:
                     file_datas.append((attachment['path'], attachment.get('name', ''), index, 'attachment'))
                     index += 1
 
-        # Embeds require an extra API call - full post content isn't in the post-list response.
-        if (not self.ALLOWED_TYPES or 'embed' in self.ALLOWED_TYPES) and 'substring' in post and post['substring']:
-            post_data = get_post_data(post['service'], post['user'], post['id'])
+        # Embeds and external links both need the post's full HTML content, which isn't in the
+        # post-list response on every mirror - kemono.cr sends a truncated `substring` preview
+        # there and needs an extra API call for the rest, but at least one mirror (pawchive.pw)
+        # already sends full `content` up front, so that's checked first to skip the extra call
+        # when possible.
+        needs_content = (not self.ALLOWED_TYPES or 'embed' in self.ALLOWED_TYPES) or 'external' in self.ALLOWED_TYPES
+        content = post.get('content') or None
 
-            soup = BeautifulSoup(post_data['post']['content'], 'html.parser')
+        if needs_content and not content and post.get('substring'):
+            post_data = get_post_data(post['service'], post['user'], post['id'])
+            if post_data:
+                # kemono.cr wraps the post in {"post": {...}}; some mirrors (pawchive.pw) return
+                # it flat instead - .get() falls back to the response itself for the latter.
+                content = post_data.get('post', post_data).get('content')
+
+        if content and (not self.ALLOWED_TYPES or 'embed' in self.ALLOWED_TYPES):
+            soup = BeautifulSoup(content, 'html.parser')
 
             for img in soup.select('img[src]'):
                 img_url = img['src']
                 img_name = os.path.basename(img_url)
                 file_datas.append((img_url, img_name, index, 'embed'))
-                
+
                 index += 1
-        
+
         files = []
         skipped = 0
 
@@ -155,13 +171,13 @@ class Creator:
 
             file_url = (get_domain_config()['file_base_url'] + file_path).split('f=')[0]
             hash = get_hash_from_url(file_url)
-            
+
             if not file_name:
                 if 'f=' in file_path:
                     file_name = file_path.split("f=")[1]
                 else:
                     file_name = hash + file_ext
-            
+
             file = File({
                 'creator_id': self.id,
                 'creator_service': self.service,
@@ -176,6 +192,85 @@ class Creator:
             })
 
             files.append(file)
+
+        # External links are opt-in only (never implied by an empty ALLOWED_TYPES) - unlike the
+        # types above, resolving them costs a Drive API call or a megatools subprocess per link,
+        # so it shouldn't happen for creators that never asked for it.
+        if content and 'external' in self.ALLOWED_TYPES:
+            external_files, external_skipped = self._detect_external_files(content, post, index)
+            files.extend(external_files)
+            skipped += external_skipped
+
+        return (files, skipped)
+
+    def _detect_external_files(self, content: str, post: dict, start_index: int) -> tuple[list[File], int]:
+        """Finds Google Drive/Mega links in a post's HTML content and expands each into one File
+        per underlying file (enumerating folder contents via the Drive API / a megatools listing
+        call). Skips - rather than fails the whole post over - links whose contents can't be
+        listed (missing GOOGLE_API_KEY, megatools not installed, dead link, Mega's unsupported
+        link-password format) or that duplicate an already-recorded external file for this
+        creator (self.external_urls)."""
+
+        files = []
+        skipped = 0
+        index = start_index
+
+        for link in external.find_external_links(content):
+            if link['kind'] == 'unsupported':
+                logger.warning(f"Skipping unsupported {link['platform']} link -> {link['url']}")
+                skipped += 1
+                continue
+
+            try:
+                if link['platform'] == 'gdrive':
+                    entries = external.list_gdrive(link)
+                else:
+                    entries = ([{'name': None, 'path': ''}] if link['kind'] == 'file'
+                               else external.list_mega_folder(link['url']))
+            except external.ListingError as e:
+                logger.warning(f"Skipping external link ({e}) -> {link['url']}")
+                skipped += 1
+                continue
+
+            for entry in entries:
+                if link['platform'] == 'gdrive':
+                    ref_id = entry['id']
+                    name = entry['name']
+                    identity = f"gdrive:{ref_id}"
+                else:
+                    # A lone Mega file link has nothing to enumerate - ref_id '' tells
+                    # Creator.download_mega_link() to fetch it directly instead of selecting an
+                    # item out of a folder listing.
+                    ref_id = entry['path']
+                    name = entry['name'] or os.path.basename(link['url'])
+                    identity = f"mega:{link['ref_id']}:{ref_id}" if ref_id else f"mega:{link['ref_id']}"
+
+                if identity in self.external_urls:
+                    continue
+
+                file_ext = os.path.splitext(name or '')[1].lower()
+                if self.ALLOWED_EXTENSIONS and file_ext not in self.ALLOWED_EXTENSIONS:
+                    skipped += 1
+                    continue
+
+                files.append(File({
+                    'creator_id': self.id,
+                    'creator_service': self.service,
+                    'creator_name': self.name,
+                    'post_id': post['id'],
+                    'post_title': sanitize_filename(post['title']),
+                    'published': get_post_time(post['published']) if post['published'] else None,
+                    'index': index,
+                    'name': sanitize_filename(name) if name else identity,
+                    'url': identity,
+                    'type': 'external',
+                    'source': link['platform'],
+                    'ref_id': ref_id,
+                    'link_url': link['url'],
+                    'password': link['password'] or '',
+                }))
+                self.external_urls.add(identity)
+                index += 1
 
         return (files, skipped)
 
@@ -215,11 +310,15 @@ class Creator:
 
             post_has_new_files = False
             for file in post_files:
-                hash = get_hash_from_url(file.url)
+                # 'external' files were already deduped against self.external_urls in
+                # _detect_external_files() - file.url there is a 'gdrive:'/'mega:' identity, not
+                # a kemono URL, so get_hash_from_url() wouldn't mean anything for it.
+                if file.type != 'external':
+                    hash = get_hash_from_url(file.url)
 
-                if hash in self.hashes:
-                    skipped["existing"] += 1
-                    continue
+                    if hash in self.hashes:
+                        skipped["existing"] += 1
+                        continue
 
                 if not file.published:
                     if i > 0:
@@ -236,7 +335,8 @@ class Creator:
                         file.published = time.time()
 
                 files.append(file)
-                self.hashes.add(hash)
+                if file.type != 'external':
+                    self.hashes.add(hash)
                 post_has_new_files = True
 
             if post_has_new_files:
@@ -281,14 +381,37 @@ class Creator:
         creator_summary.status = 'completed'
         return creator_summary
 
-    def download_all_files(self, files: list[File], max_workers: int = 5) -> dict[File, FileOutcome]:
+    def download_all_files(self, files: list[File], max_workers: int = 5, external_max_workers: int = 3,
+                            mega_max_workers: int = 2) -> dict[File, FileOutcome]:
+        """Downloads kemono and Google Drive files (each independently fetchable) through one
+        pool, then Mega files - grouped by their shared folder/file link, since a whole link is
+        fetched in a single megatools invocation - through a smaller second pool. Kept separate
+        from the main pool (and from each other) because Drive/Mega quotas are independent of
+        kemono's own rate limits, and Mega's anonymous bandwidth cap in particular is shared
+        per-IP across every concurrent download, so throwing more workers at it just burns
+        through the daily cap faster rather than finishing faster."""
+
+        direct_files = [f for f in files if f.source != 'mega']
+        mega_files = [f for f in files if f.source == 'mega']
+
         results = {}
         with ThreadPoolExecutor(max_workers=max_workers) as exe:
-            futures = {exe.submit(self.download_file, file): file for file in files}
+            futures = {exe.submit(self.download_file, file): file for file in direct_files}
 
             for fut in as_completed(futures):
                 file = futures[fut]
                 results[file] = fut.result()
+
+        if mega_files:
+            by_link = {}
+            for file in mega_files:
+                by_link.setdefault(file.link_url, []).append(file)
+
+            with ThreadPoolExecutor(max_workers=mega_max_workers) as exe:
+                futures = {exe.submit(self.download_mega_link, link, group): group for link, group in by_link.items()}
+
+                for fut in as_completed(futures):
+                    results.update(fut.result())
 
         return results
 
@@ -302,6 +425,71 @@ class Creator:
             logger.error(f"Download failed -> {file.get_dest_download_path()}")
             failure_logger.error(json.dumps({**file.get_data(), 'reason': e.reason}))
             return FileOutcome('failed', e.reason)
+
+        return self._finish_download(file)
+
+    def download_mega_link(self, link_url: str, files: list[File]) -> dict[File, FileOutcome]:
+        """Downloads every `files` entry from a single shared Mega link in one megatools
+        invocation, then finalizes and records each individually - the same tail download_file()
+        runs per-file, since a batch of Mega downloads still produces ordinary files on disk that
+        need extraction/DB-recording exactly the same way.
+
+        A lone Mega *file* link (files[0].ref_id == '') is fetched directly. Otherwise `files`
+        are entries from a folder link, identified by their path within it (see
+        Creator._detect_external_files) - the actual megatools selection numbers are re-resolved
+        from a fresh listing here rather than reused from detection time, since folder contents
+        can change in the (possibly long) gap between detecting and downloading."""
+
+        results = {}
+        temp_dir = f"{app_config.TEMP_DIR}/mega_{hashlib.sha1(link_url.encode()).hexdigest()}"
+
+        try:
+            if len(files) == 1 and not files[0].ref_id:
+                downloaded_path = external.download_mega_file(link_url, temp_dir)
+                path_map = {files[0]: downloaded_path}
+            else:
+                fresh_listing = external.list_mega_folder(link_url)
+                path_to_number = {entry['path']: entry['number'] for entry in fresh_listing}
+
+                numbers = []
+                path_map = {}
+                for file in files:
+                    number = path_to_number.get(file.ref_id)
+                    if number is None:
+                        logger.warning(f"Mega file no longer found in folder listing -> {file.link_url}/{file.ref_id}")
+                        results[file] = FileOutcome('failed', summary.FAIL_NOT_FOUND)
+                        continue
+                    numbers.append(number)
+                    path_map[file] = os.path.join(temp_dir, file.ref_id)
+
+                if numbers:
+                    external.download_mega_selection(link_url, numbers, temp_dir)
+
+        except DownloadError as e:
+            logger.error(f"Mega download failed -> {link_url}")
+            for file in files:
+                if file not in results:
+                    failure_logger.error(json.dumps({**file.get_data(), 'reason': e.reason}))
+                    results[file] = FileOutcome('failed', e.reason)
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return results
+
+        for file, src_path in path_map.items():
+            if not os.path.exists(src_path):
+                logger.error(f"Mega download did not produce the expected file -> {src_path}")
+                failure_logger.error(json.dumps({**file.get_data(), 'reason': summary.FAIL_NOT_FOUND}))
+                results[file] = FileOutcome('failed', summary.FAIL_NOT_FOUND)
+                continue
+
+            file.finalize(src_path)
+            results[file] = self._finish_download(file)
+
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        return results
+
+    def _finish_download(self, file: File) -> FileOutcome:
+        """Shared tail for a file whose bytes already exist at file.path (set by File.download()
+        or File.finalize()): records it in the DB, then auto-extracts it if it's an archive."""
 
         logger.debug(f"Saving file data... -> {file.path}")
         with get_thread_lock():
@@ -342,6 +530,14 @@ class Creator:
         if file_data and 'password' in file_data:
             logger.debug(f"Found password {file_data['password']} -> {file.path}")
             passwords.append(file_data['password'])
+
+        # For an 'external' file, self.password was pre-filled with a password scraped from the
+        # post text next to its Drive/Mega link (see Creator._detect_external_files) - tried
+        # before the creator's own ARCHIVE_PASSWORDS, but after kemono's own known-file password
+        # above, which is still the more authoritative source when both exist.
+        if file.type == 'external' and file.password and file.password not in passwords:
+            logger.debug(f"Trying password scraped from post text -> {file.path}")
+            passwords.append(file.password)
 
         for pwd in self.ARCHIVE_PASSWORDS:
             if not pwd in passwords:

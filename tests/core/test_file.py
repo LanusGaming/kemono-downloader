@@ -5,8 +5,9 @@ from requests.exceptions import ConnectionError as RequestsConnectionError
 
 import core.config
 import core.file
+import core.external
 from core.file import DEFAULT_FILE, File
-from core.summary import NotFoundError, DownloadTimeoutError
+from core.summary import NotFoundError, DownloadTimeoutError, QuotaExceededError
 
 
 def make_file(**overrides) -> File:
@@ -108,3 +109,76 @@ def test_download_success_sets_utime_on_file_and_parent_folder(tmp_dirs, request
 
     assert file_mtime == pytest.approx(1_700_000_000.0 + 3)
     assert folder_mtime == pytest.approx(1_700_000_000.0)
+
+
+# --- source='gdrive' ---
+
+def test_download_gdrive_dispatches_to_drive_api_not_kemono_url(tmp_dirs, monkeypatch):
+    monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 60)
+    file = make_file(source='gdrive', ref_id='abc123', url='gdrive:abc123')
+
+    calls = []
+    def fake_download(ref_id, dest_path):
+        calls.append(ref_id)
+        with open(dest_path, 'wb') as f:
+            f.write(b'drive-bytes')
+    monkeypatch.setattr(core.external, "download_gdrive_file", fake_download)
+
+    file.download()
+
+    assert calls == ['abc123']
+    assert os.path.exists(file.path)
+    from core.files import generate_hash
+    assert file.hash == generate_hash(file.path)
+
+
+def test_download_gdrive_quota_exceeded_fails_immediately_with_no_retry(tmp_dirs, monkeypatch):
+    monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 60)
+    file = make_file(source='gdrive', ref_id='abc123', url='gdrive:abc123')
+
+    calls = []
+    def fake_download(ref_id, dest_path):
+        calls.append(ref_id)
+        raise QuotaExceededError("quota exceeded")
+    monkeypatch.setattr(core.external, "download_gdrive_file", fake_download)
+
+    with pytest.raises(QuotaExceededError):
+        file.download()
+
+    assert len(calls) == 1  # no retry - quota resets on its own schedule, not by waiting
+    assert not os.path.exists(file.get_temp_download_path())
+
+
+def test_download_gdrive_retries_generic_errors_until_exhausted(tmp_dirs, monkeypatch):
+    monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 3)
+    monkeypatch.setattr(core.config, "DOWNLOAD_RETRY_DELAY", 0)
+    file = make_file(source='gdrive', ref_id='abc123', url='gdrive:abc123')
+
+    calls = []
+    def fake_download(ref_id, dest_path):
+        calls.append(ref_id)
+        raise Exception("transient error")
+    monkeypatch.setattr(core.external, "download_gdrive_file", fake_download)
+
+    with pytest.raises(DownloadTimeoutError):
+        file.download()
+
+    assert len(calls) == 3
+
+
+# --- finalize() ---
+
+def test_finalize_moves_temp_path_and_sets_hash(tmp_dirs):
+    file = make_file(published=1000.0, index=1)
+    temp_path = file.get_temp_download_path()
+    os.makedirs(os.path.dirname(temp_path), exist_ok=True)
+    with open(temp_path, 'wb') as f:
+        f.write(b'already-downloaded-bytes')
+
+    file.finalize(temp_path)
+
+    assert file.path == file.get_dest_download_path()
+    assert os.path.exists(file.path)
+    assert not os.path.exists(temp_path)
+    from core.files import generate_hash
+    assert file.hash == generate_hash(file.path)
