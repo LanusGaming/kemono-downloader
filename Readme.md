@@ -21,6 +21,7 @@ built-in cron schedule.
 - [Data Layout](#data-layout)
 - [Filtering Posts and Files](#filtering-posts-and-files)
 - [Archive Extraction & Passwords](#archive-extraction--passwords)
+- [External Links (Google Drive & Mega)](#external-links-google-drive--mega)
 - [Scheduling](#scheduling)
 - [Domains & Mirrors](#domains--mirrors)
 - [Reconciling Files Already on Disk](#reconciling-files-already-on-disk)
@@ -30,6 +31,9 @@ built-in cron schedule.
 
 ## Features
 - Downloads attachments, post thumbnails, and (optionally) images embedded in post content.
+- Optionally follows Google Drive/Mega links posted in the body text itself, for creators who
+  share files that way instead of attaching them — see
+  [External Links](#external-links-google-drive--mega).
 - Hash-based deduplication via a local SQLite database — already-downloaded files are skipped
   without re-fetching them, even across restarts.
 - Automatic extraction of `.zip` (incl. AES-encrypted), `.rar`, and `.7z` archives, with a
@@ -97,11 +101,12 @@ See [Data Layout](#data-layout) for a concrete example.
 ## Configuration
 
 ### Session Cookie (`.env`)
-`.env` (gitignored — never commit your real cookie) holds exactly one setting:
+`.env` (gitignored — never commit your real cookie) holds credentials:
 
 | Variable | Required | Description |
 |---|---|---|
 | `SESSION_COOKIE` | yes | The value of kemono's `session` cookie, copied from your browser's dev tools after logging in. Needed to access favorites, non-public content, and post data. Only read once at startup — changing it requires a container restart. |
+| `GOOGLE_API_KEY` | only for `external`+Drive | A free Google Cloud API key with the Drive API enabled. Only needed if a creator's `ALLOWED_TYPES` includes `external` and they post Google Drive links — see [External Links](#external-links-google-drive--mega). Not needed for Mega links. |
 
 ### Global Config (`config/config.conf`)
 Created automatically from [`core/config.conf.default`](core/config.conf.default) the first time
@@ -135,7 +140,7 @@ behavior independently per creator.
 | `INCLUDE_REGEX` | *(empty)* | Only download posts whose **title** fully matches this regex. Mutually exclusive with `EXCLUDE_REGEX` — if both are set, `EXCLUDE_REGEX` is ignored (a warning is logged). |
 | `EXCLUDE_REGEX` | *(empty)* | Skip posts whose title fully matches this regex. Ignored if `INCLUDE_REGEX` is set. |
 | `ALLOWED_EXTENSIONS` | `.jpg,.jpeg,.png,.zip,.mp4,.gif,.pdf,.7z,.mp3,.wav,.rar,.mov,.docx,.jpe,.webp` | Comma-separated list of file extensions to download. Empty allows any extension. |
-| `ALLOWED_TYPES` | `attachment` | Comma-separated subset of `attachment`, `thumbnail`, `embed`. Empty allows all three. `embed` (images referenced in the post body) costs one extra API call per post to fetch the full content. |
+| `ALLOWED_TYPES` | `attachment` | Comma-separated subset of `attachment`, `thumbnail`, `embed`, `external`. Empty allows `attachment`/`thumbnail`/`embed` (not `external` — see below). `embed` (images referenced in the post body) and `external` both cost one extra API call per post to fetch the full content, where the mirror doesn't already send it. |
 | `AUTO_UNZIP` | `true` | Automatically extract downloaded `.zip`/`.rar`/`.7z` archives. |
 | `KEEP_UNPACKED_ARCHIVES` | `true` | Keep the archive file on disk after successful extraction. |
 | `KEEP_FAILED_ARCHIVES` | `false` | If extraction fails (no known password works, or an error occurs), keep the archive on disk as-is instead of deleting it. When `false` (default), a failed archive is deleted and **retried on every subsequent run**; when `true`, it's kept and left alone. |
@@ -224,6 +229,43 @@ after download:
 > will be **re-downloaded and retried on every future run** until it succeeds or you set
 > `KEEP_FAILED_ARCHIVES=true` for that creator.
 
+## External Links (Google Drive & Mega)
+Some creators don't attach their actual files to the post at all — instead they paste a Google
+Drive or Mega share link into the post body, sometimes with a password for the archive inside,
+because their platform can't host the file directly (size limits, disallowed file types, etc).
+Setting `ALLOWED_TYPES` to include `external` for a creator makes this script follow those links
+and download what's behind them, the same as any other file type — with the same hash-based dedup,
+the same `AUTO_UNZIP`/`ARCHIVE_PASSWORDS` extraction pipeline, and the same `ALLOWED_EXTENSIONS`
+filtering (applied to the linked file's own name, once it's known).
+
+- **Unlike `attachment`/`thumbnail`/`embed`, `external` is never implied by an empty
+  `ALLOWED_TYPES`** — it must be added explicitly, since resolving these links costs an extra
+  network call (a Drive API request, or a `megatools` subprocess) per link found, not just per
+  post.
+- **A password, if found, is scraped from the post's own text** near the link (e.g. `pass:
+  hunter2`, in English/Japanese/Chinese/Korean) and tried before the creator's `ARCHIVE_PASSWORDS`
+  list. This is best-effort — most creators don't password-protect these links at all, and if no
+  password is found, extraction just proceeds with none, same as it always does otherwise.
+- **Google Drive** links (both a single file and a whole folder) are resolved via the Drive API v3
+  using `GOOGLE_API_KEY` — a free key, no OAuth or billing needed, since these are all
+  publicly-shared ("anyone with the link") files. Folders are enumerated recursively; native
+  Google Docs/Sheets/etc. entries (not actual files) are skipped.
+- **Mega** links need no credentials — the decryption key lives in the URL itself — but do need
+  the `megatools` binary, bundled in the Docker image. A whole shared folder is listed and
+  downloaded through it directly; only files not already recorded for that creator are selected.
+  Mega's own *link-level* password feature (a `mega.nz/#P!...` URL — distinct from an archive
+  password, and rare) isn't supported by `megatools` and is skipped with a warning rather than
+  silently failing.
+- **Downloads run in their own worker pools**, separate from the main kemono download pool and
+  from each other: Drive and kemono files share retry/backoff logic but are otherwise independent,
+  while Mega downloads are grouped by shared link (a whole folder link downloads in one
+  `megatools` invocation) and kept to a small pool, since Mega's anonymous bandwidth quota is
+  shared per-IP across all concurrent downloads — more workers there just exhausts the daily cap
+  faster rather than finishing faster.
+- A quota rejection (Drive's per-file quota, or Mega's bandwidth cap) fails that file immediately
+  without retrying within the run — both quotas reset on their own schedule, not by waiting a few
+  seconds — and shows up in the run summary as `external_quota_exceeded`.
+
 ## Scheduling
 Controlled entirely by `CRON_EXPRESSION` and `RUN_IMMEDIATELY` in
 [the global config](#global-config-configconfconf) — no supercronic or host cron needed.
@@ -296,7 +338,8 @@ The Dockerfile is a two-stage build: the builder stage compiles
 [`ext/dezip.pyx`](ext/dezip.pyx), a Cython-accelerated zip decrypter that patches
 `zipfile._ZipDecrypter` for faster password-protected `.zip` extraction, and the runtime stage
 copies in the built extension plus the `unrar` binary (from Debian's non-free repo, needed for
-`.rar` support).
+`.rar` support) and the `megatools` binary (needed for Mega links — see
+[External Links](#external-links-google-drive--mega)).
 
 To build and run locally instead of pulling a prebuilt image:
 ```bash

@@ -9,6 +9,12 @@ DATA_DIR = os.getenv('DATA_DIR', '/data')
 CONFIG_DIR = os.getenv('CONFIG_DIR', '/config')
 TEMP_DIR = os.getenv('TEMP_DIR', '/temp')
 SESSION_COOKIE = os.getenv('SESSION_COOKIE', '')
+# Google Drive API v3 key - only needed if ALLOWED_TYPES includes 'external' and a creator posts
+# Drive links. Not required for Mega links (megatools needs no credentials for public links).
+GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY', '')
+# Path to the megatools binary - only needed if ALLOWED_TYPES includes 'external' and a creator
+# posts Mega links.
+MEGATOOLS_BIN = os.getenv('MEGATOOLS_BIN', 'megatools')
 
 CONFIG_PATH = os.path.join(CONFIG_DIR, 'config.conf')
 DEFAULT_CONFIG_TEMPLATE = os.path.join(os.path.dirname(__file__), 'config.conf.default')

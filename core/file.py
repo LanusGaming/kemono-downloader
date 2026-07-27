@@ -5,7 +5,7 @@ from .files import generate_hash
 from .network import SESSION, get_headers
 from . import config
 from .config import DATA_DIR, TEMP_DIR
-from .summary import NotFoundError, DownloadTimeoutError
+from .summary import NotFoundError, DownloadTimeoutError, QuotaExceededError
 from .utils import *
 
 logger = logging.getLogger("downloader")
@@ -25,7 +25,19 @@ DEFAULT_FILE = {
     'url': '',
     'type': '',
     'password': '',
-    'parent_archive_id': None
+    'parent_archive_id': None,
+    # 'kemono' (default) is the existing direct-download path. 'gdrive' is downloaded via the
+    # Drive API by File.download() itself, same as 'kemono'. 'mega' files are *not* downloaded
+    # through File.download() at all - Mega folder links are fetched as a single batch by
+    # Creator.download_mega_link(), which calls File.finalize() directly once the bytes already
+    # exist on disk, same as this class's own download() does at its tail.
+    'source': 'kemono',
+    # The Drive file ID ('gdrive') or the file's path within its Mega folder ('mega') - the
+    # pre-download identity used for dedup, since (unlike kemono's URLs) neither platform embeds
+    # a content hash we can check before fetching the bytes.
+    'ref_id': '',
+    # The original Drive/Mega share link this file came from - unused for 'kemono' files.
+    'link_url': '',
 }
 
 class File:
@@ -64,13 +76,27 @@ class File:
         return DATA_DIR + os.path.join(self.get_folder_path(), self.get_filename())
     
     def download(self) -> None:
-        """Downloads self.url to a temp path and moves it to its destination on success,
-        retrying up to DOWNLOAD_MAX_ATTEMPTS times. A 404 fails immediately with no retry (the
-        file isn't imported on the mirror yet); a 502 always waits 5s regardless of
-        DOWNLOAD_RETRY_DELAY. Sets self.path/self.hash on success. Raises NotFoundError on a 404,
-        or DownloadTimeoutError once retries are exhausted."""
+        """Downloads this file to a temp path and moves it to its destination on success. Sets
+        self.path/self.hash on success. Dispatches by self.source - 'kemono' is the original
+        direct-download path; 'gdrive' fetches via the Drive API. 'mega' files are never
+        downloaded through this method (see the 'source' comment on DEFAULT_FILE) - Mega links
+        are fetched as a batch by Creator.download_mega_link(), which calls finalize() directly."""
 
         temp_path = self.get_temp_download_path()
+
+        if self.source == 'gdrive':
+            self._fetch_gdrive(temp_path)
+        else:
+            self._fetch_kemono(temp_path)
+
+        self.finalize(temp_path)
+
+    def _fetch_kemono(self, temp_path: str) -> None:
+        """Downloads self.url to temp_path, retrying up to DOWNLOAD_MAX_ATTEMPTS times. A 404
+        fails immediately with no retry (the file isn't imported on the mirror yet); a 502
+        always waits 5s regardless of DOWNLOAD_RETRY_DELAY. Raises NotFoundError on a 404, or
+        DownloadTimeoutError once retries are exhausted."""
+
         dest_path = self.get_dest_download_path()
         max_attempts = config.DOWNLOAD_MAX_ATTEMPTS
 
@@ -84,12 +110,12 @@ class File:
                     for chunk in r.iter_content(8192):
                         if chunk:
                             f.write(chunk)
-                
+
                 if not os.path.exists(temp_path):
                     raise Exception("No file created")
-                
-                break
-            
+
+                return
+
             except Exception as e:
                 if isinstance(e, HTTPError) and e.response.status_code == 404:
                     logger.warning(f"Skipping retries (404) -> {dest_path}")
@@ -114,8 +140,50 @@ class File:
 
                     raise DownloadTimeoutError(str(e)) from e
 
+    def _fetch_gdrive(self, temp_path: str) -> None:
+        """Downloads this Drive file (self.ref_id) to temp_path, retrying up to
+        DOWNLOAD_MAX_ATTEMPTS times. A quota rejection fails immediately with no retry - Drive's
+        per-file quota resets on its own schedule, not by waiting seconds."""
+
+        from .external import download_gdrive_file
+
+        dest_path = self.get_dest_download_path()
+        max_attempts = config.DOWNLOAD_MAX_ATTEMPTS
+
+        logger.debug(f"Drive download starting... -> {dest_path}")
+        for attempt in range(max_attempts):
+            try:
+                download_gdrive_file(self.ref_id, temp_path)
+                if not os.path.exists(temp_path):
+                    raise Exception("No file created")
+                return
+
+            except QuotaExceededError:
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                raise
+
+            except Exception as e:
+                logger.warning(f"Attempt failed ({attempt+1}/{max_attempts}) -> {dest_path}")
+                logger.debug(f"[Exception] {e}")
+
+                if attempt < max_attempts-1:
+                    time.sleep(config.DOWNLOAD_RETRY_DELAY)
+                else:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    raise DownloadTimeoutError(str(e)) from e
+
+    def finalize(self, temp_path: str) -> None:
+        """Moves an already-downloaded temp_path to this file's destination, sets its mtimes to
+        match the post's publish time, and records self.path/self.hash. Shared by download()'s
+        own tail and by Creator.download_mega_link(), which fetches Mega files in a batch outside
+        of File.download() and then finalizes each one individually."""
+
+        dest_path = self.get_dest_download_path()
+
         logger.info(f"Finished download -> {dest_path}")
-        
+
         logger.debug(f"Moving... -> {temp_path} to {dest_path}")
         dest_folder = os.path.dirname(dest_path)
         os.makedirs(dest_folder, exist_ok=True)
