@@ -16,10 +16,6 @@ FAIL_EXTERNAL_UNSUPPORTED = 'external_link_unsupported'
 FAIL_EXTERNAL_QUOTA = 'external_quota_exceeded'
 FAIL_EXTERNAL_DOWNLOAD = 'external_download_error'
 
-# Skip reason for a detected external (Drive/Mega) link whose contents couldn't even be listed -
-# see SKIP_FILTERED/SKIP_REGEX/SKIP_EXISTING above.
-SKIP_EXTERNAL_LISTING = 'external_link_listing_failed'
-
 class DownloadError(Exception):
     """Base for classified download/extraction failures - never raised directly. `reason` is one
     of the FAIL_* constants above, set by each subclass."""
@@ -41,18 +37,14 @@ class ExtractionError(DownloadError):
     reason = FAIL_EXTRACTION_ERROR
 
 class UnsupportedLinkError(DownloadError):
-    """A Drive/Mega link type this project can't handle - e.g. Mega's link-level password
-    feature (`#P!...`), which megatools doesn't support."""
+    """A Drive/Mega link type this project can't handle, e.g. Mega's `#P!...` link passwords."""
     reason = FAIL_EXTERNAL_UNSUPPORTED
 
 class QuotaExceededError(DownloadError):
-    """Drive's per-file download quota or Mega's anonymous bandwidth cap was hit. Not retried
-    within the same run - these quotas reset on their own schedule, not by waiting seconds."""
+    """Not retried within the run - Drive/Mega quotas reset on their own schedule."""
     reason = FAIL_EXTERNAL_QUOTA
 
 class ExternalDownloadError(DownloadError):
-    """Catch-all for a Drive/Mega download failing for a reason that isn't quota or an
-    unsupported link type."""
     reason = FAIL_EXTERNAL_DOWNLOAD
 
 @dataclass

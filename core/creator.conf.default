@@ -8,10 +8,8 @@ EXCLUDE_REGEX=
 ALLOWED_EXTENSIONS=.jpg,.jpeg,.png,.zip,.mp4,.gif,.pdf,.7z,.mp3,.wav,.rar,.mov,.docx,.jpe,.webp
 
 # Comma-separated file types to download (attachment, thumbnail, embed, external) - leave empty
-# to allow attachment/thumbnail/embed. 'external' is never implied by an empty list and must be
-# added explicitly - it follows Google Drive/Mega links pasted into the post body (common when a
-# creator's platform can't host the file itself) and needs GOOGLE_API_KEY (Drive) and/or the
-# megatools binary (Mega) available - see the Readme's "External Links" section.
+# to allow attachment/thumbnail/embed. 'external' (Drive/Mega links in the post body) is opt-in
+# only and needs GOOGLE_API_KEY and/or megatools - see the Readme's "External Links" section.
 ALLOWED_TYPES=attachment
 
 # Automatically extract downloaded archives

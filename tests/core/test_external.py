@@ -68,8 +68,7 @@ def test_finds_space_broken_mega_link_used_to_dodge_auto_linkify():
 
 
 def test_password_scrape_requires_ascii_value_avoids_cjk_false_positive():
-    # "パスタ" (pasta) starts with "パス" ("pass") but continues in kana, not ASCII - a real post
-    # seen during development ("パスタが美味しくておすすめです") would otherwise false-positive.
+    # "パスタ" (pasta) starts with "パス" ("pass") but continues in kana, not ASCII.
     content = '<p>https://drive.google.com/file/d/1QHb6UPDJokQ0Bb6Hvp3E6hnr9OnvyYT9/view</p><p>パスタが美味しくておすすめです</p>'
     links = find_external_links(content)
 

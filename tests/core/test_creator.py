@@ -433,9 +433,7 @@ def test_download_mega_link_folder_selects_new_files_by_fresh_listing(make_creat
     file_a = make_mega_file(creator, ref_id='Set/a.bin', link_url='https://mega.nz/folder/x#y', name='a.bin')
     file_b = make_mega_file(creator, ref_id='Set/b.bin', link_url='https://mega.nz/folder/x#y', name='b.bin')
 
-    # Numbers are re-resolved from a fresh listing at download time, not reused from detection -
-    # folder contents can change in the gap between the two (see Creator.download_mega_link's
-    # docstring).
+    # Numbers are re-resolved from a fresh listing at download time, not reused from detection.
     monkeypatch.setattr(creator_module.external, "list_mega_folder", lambda url: [
         {'number': 2, 'name': 'a.bin', 'path': 'Set/a.bin'},
         {'number': 3, 'name': 'b.bin', 'path': 'Set/b.bin'},

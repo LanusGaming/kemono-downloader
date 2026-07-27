@@ -26,18 +26,9 @@ DEFAULT_FILE = {
     'type': '',
     'password': '',
     'parent_archive_id': None,
-    # 'kemono' (default) is the existing direct-download path. 'gdrive' is downloaded via the
-    # Drive API by File.download() itself, same as 'kemono'. 'mega' files are *not* downloaded
-    # through File.download() at all - Mega folder links are fetched as a single batch by
-    # Creator.download_mega_link(), which calls File.finalize() directly once the bytes already
-    # exist on disk, same as this class's own download() does at its tail.
-    'source': 'kemono',
-    # The Drive file ID ('gdrive') or the file's path within its Mega folder ('mega') - the
-    # pre-download identity used for dedup, since (unlike kemono's URLs) neither platform embeds
-    # a content hash we can check before fetching the bytes.
-    'ref_id': '',
-    # The original Drive/Mega share link this file came from - unused for 'kemono' files.
-    'link_url': '',
+    'source': 'kemono',  # 'kemono', 'gdrive', or 'mega' - see File.download()
+    'ref_id': '',  # Drive file ID, or the file's path within its Mega folder
+    'link_url': '',  # the Drive/Mega share link this file came from
 }
 
 class File:
@@ -76,11 +67,9 @@ class File:
         return DATA_DIR + os.path.join(self.get_folder_path(), self.get_filename())
     
     def download(self) -> None:
-        """Downloads this file to a temp path and moves it to its destination on success. Sets
-        self.path/self.hash on success. Dispatches by self.source - 'kemono' is the original
-        direct-download path; 'gdrive' fetches via the Drive API. 'mega' files are never
-        downloaded through this method (see the 'source' comment on DEFAULT_FILE) - Mega links
-        are fetched as a batch by Creator.download_mega_link(), which calls finalize() directly."""
+        """Downloads this file to a temp path and moves it to its destination, dispatching by
+        self.source ('kemono' or 'gdrive' - 'mega' files go through Creator.download_mega_link()
+        instead, calling finalize() directly). Sets self.path/self.hash on success."""
 
         temp_path = self.get_temp_download_path()
 
@@ -176,9 +165,7 @@ class File:
 
     def finalize(self, temp_path: str) -> None:
         """Moves an already-downloaded temp_path to this file's destination, sets its mtimes to
-        match the post's publish time, and records self.path/self.hash. Shared by download()'s
-        own tail and by Creator.download_mega_link(), which fetches Mega files in a batch outside
-        of File.download() and then finalizes each one individually."""
+        match the post's publish time, and records self.path/self.hash."""
 
         dest_path = self.get_dest_download_path()
 

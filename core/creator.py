@@ -85,9 +85,8 @@ class Creator:
         conf.write(path, DEFAULT_CREATOR_CONFIG_TEMPLATE, values)
 
     def load_files(self):
-        """Loads this creator's known file hashes into self.hashes for dedup - not the full
-        file records, just the hashes. Also loads self.external_urls, the pre-download dedup set
-        for 'external' (Drive/Mega) files - see File's 'source'/'ref_id' fields."""
+        """Loads this creator's known file hashes into self.hashes, and known external-file
+        identities into self.external_urls, for dedup."""
 
         total, archive_count = db.count_files_for_creator(self.service, self.id)
         if total == 0:
@@ -123,19 +122,16 @@ class Creator:
                     file_datas.append((attachment['path'], attachment.get('name', ''), index, 'attachment'))
                     index += 1
 
-        # Embeds and external links both need the post's full HTML content, which isn't in the
-        # post-list response on every mirror - kemono.cr sends a truncated `substring` preview
-        # there and needs an extra API call for the rest, but at least one mirror (pawchive.pw)
-        # already sends full `content` up front, so that's checked first to skip the extra call
-        # when possible.
+        # Embeds and external links both need the post's full HTML content. kemono.cr's
+        # post-list response only has a truncated `substring` and needs an extra API call for
+        # the rest; some mirrors (pawchive.pw) already send full `content` up front.
         needs_content = (not self.ALLOWED_TYPES or 'embed' in self.ALLOWED_TYPES) or 'external' in self.ALLOWED_TYPES
         content = post.get('content') or None
 
         if needs_content and not content and post.get('substring'):
             post_data = get_post_data(post['service'], post['user'], post['id'])
             if post_data:
-                # kemono.cr wraps the post in {"post": {...}}; some mirrors (pawchive.pw) return
-                # it flat instead - .get() falls back to the response itself for the latter.
+                # kemono.cr wraps the post as {"post": {...}}; pawchive.pw returns it flat.
                 content = post_data.get('post', post_data).get('content')
 
         if content and (not self.ALLOWED_TYPES or 'embed' in self.ALLOWED_TYPES):
@@ -193,9 +189,8 @@ class Creator:
 
             files.append(file)
 
-        # External links are opt-in only (never implied by an empty ALLOWED_TYPES) - unlike the
-        # types above, resolving them costs a Drive API call or a megatools subprocess per link,
-        # so it shouldn't happen for creators that never asked for it.
+        # External links are opt-in only, never implied by an empty ALLOWED_TYPES - resolving
+        # them costs a Drive API call or a megatools subprocess per link.
         if content and 'external' in self.ALLOWED_TYPES:
             external_files, external_skipped = self._detect_external_files(content, post, index)
             files.extend(external_files)
@@ -205,11 +200,9 @@ class Creator:
 
     def _detect_external_files(self, content: str, post: dict, start_index: int) -> tuple[list[File], int]:
         """Finds Google Drive/Mega links in a post's HTML content and expands each into one File
-        per underlying file (enumerating folder contents via the Drive API / a megatools listing
-        call). Skips - rather than fails the whole post over - links whose contents can't be
-        listed (missing GOOGLE_API_KEY, megatools not installed, dead link, Mega's unsupported
-        link-password format) or that duplicate an already-recorded external file for this
-        creator (self.external_urls)."""
+        per underlying file, enumerating folder contents via the Drive API / a megatools listing
+        call. A link whose contents can't be listed, or that duplicates an already-recorded
+        external file (self.external_urls), is skipped rather than failing the whole post."""
 
         files = []
         skipped = 0
@@ -238,9 +231,8 @@ class Creator:
                     name = entry['name']
                     identity = f"gdrive:{ref_id}"
                 else:
-                    # A lone Mega file link has nothing to enumerate - ref_id '' tells
-                    # Creator.download_mega_link() to fetch it directly instead of selecting an
-                    # item out of a folder listing.
+                    # ref_id '' (a lone file link, nothing to enumerate) tells
+                    # download_mega_link() to fetch directly instead of selecting from a folder.
                     ref_id = entry['path']
                     name = entry['name'] or os.path.basename(link['url'])
                     identity = f"mega:{link['ref_id']}:{ref_id}" if ref_id else f"mega:{link['ref_id']}"
@@ -310,9 +302,8 @@ class Creator:
 
             post_has_new_files = False
             for file in post_files:
-                # 'external' files were already deduped against self.external_urls in
-                # _detect_external_files() - file.url there is a 'gdrive:'/'mega:' identity, not
-                # a kemono URL, so get_hash_from_url() wouldn't mean anything for it.
+                # 'external' files are already deduped via self.external_urls - file.url there
+                # is a 'gdrive:'/'mega:' identity, not a kemono URL.
                 if file.type != 'external':
                     hash = get_hash_from_url(file.url)
 
@@ -381,15 +372,13 @@ class Creator:
         creator_summary.status = 'completed'
         return creator_summary
 
-    def download_all_files(self, files: list[File], max_workers: int = 5, external_max_workers: int = 3,
+    def download_all_files(self, files: list[File], max_workers: int = 5,
                             mega_max_workers: int = 2) -> dict[File, FileOutcome]:
-        """Downloads kemono and Google Drive files (each independently fetchable) through one
-        pool, then Mega files - grouped by their shared folder/file link, since a whole link is
-        fetched in a single megatools invocation - through a smaller second pool. Kept separate
-        from the main pool (and from each other) because Drive/Mega quotas are independent of
-        kemono's own rate limits, and Mega's anonymous bandwidth cap in particular is shared
-        per-IP across every concurrent download, so throwing more workers at it just burns
-        through the daily cap faster rather than finishing faster."""
+        """Downloads kemono and Google Drive files through the main pool, then Mega files -
+        grouped by their shared folder/file link, since a whole link downloads in one megatools
+        invocation - through a smaller pool. Mega gets fewer workers because its anonymous
+        bandwidth cap is shared per-IP across concurrent downloads, so more workers there just
+        burns through the daily cap faster rather than finishing faster."""
 
         direct_files = [f for f in files if f.source != 'mega']
         mega_files = [f for f in files if f.source == 'mega']
@@ -430,15 +419,12 @@ class Creator:
 
     def download_mega_link(self, link_url: str, files: list[File]) -> dict[File, FileOutcome]:
         """Downloads every `files` entry from a single shared Mega link in one megatools
-        invocation, then finalizes and records each individually - the same tail download_file()
-        runs per-file, since a batch of Mega downloads still produces ordinary files on disk that
-        need extraction/DB-recording exactly the same way.
+        invocation, then finalizes and records each individually.
 
         A lone Mega *file* link (files[0].ref_id == '') is fetched directly. Otherwise `files`
-        are entries from a folder link, identified by their path within it (see
-        Creator._detect_external_files) - the actual megatools selection numbers are re-resolved
-        from a fresh listing here rather than reused from detection time, since folder contents
-        can change in the (possibly long) gap between detecting and downloading."""
+        are folder entries identified by their path, and their megatools selection numbers are
+        re-resolved from a fresh listing here rather than reused from detection time, since
+        folder contents can change in the gap between the two."""
 
         results = {}
         temp_dir = f"{app_config.TEMP_DIR}/mega_{hashlib.sha1(link_url.encode()).hexdigest()}"
@@ -531,10 +517,8 @@ class Creator:
             logger.debug(f"Found password {file_data['password']} -> {file.path}")
             passwords.append(file_data['password'])
 
-        # For an 'external' file, self.password was pre-filled with a password scraped from the
-        # post text next to its Drive/Mega link (see Creator._detect_external_files) - tried
-        # before the creator's own ARCHIVE_PASSWORDS, but after kemono's own known-file password
-        # above, which is still the more authoritative source when both exist.
+        # file.password was pre-filled from the post text for 'external' files - tried before
+        # ARCHIVE_PASSWORDS, but after kemono's own known-file password above.
         if file.type == 'external' and file.password and file.password not in passwords:
             logger.debug(f"Trying password scraped from post text -> {file.path}")
             passwords.append(file.password)

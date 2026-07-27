@@ -8,9 +8,8 @@ from .summary import QuotaExceededError, UnsupportedLinkError, ExternalDownloadE
 logger = logging.getLogger("downloader")
 
 class ListingError(Exception):
-    """Raised when a Drive/Mega link's contents can't be enumerated at all - bad/missing API
-    key, the link is dead, or a network error. Distinct from DownloadError, which covers a
-    *known* file failing to download - this is "we don't even know what's in this link"."""
+    """A Drive/Mega link's contents couldn't be enumerated - bad/missing API key, dead link, or
+    network error."""
 
 # --- Link + password detection ---------------------------------------------------------------
 
@@ -21,30 +20,20 @@ GDRIVE_FOLDER_RE = re.compile(
     r'https?://drive\.google\.com/(?:drive/(?:u/\d+/)?folders/([\w-]{10,})|folderview\?id=([\w-]{10,}))',
     re.I)
 
-# Mega links carry their decryption key in the URL itself (after '#'), so - unlike Drive - no
-# credentials are needed to fetch a public link. Both the current and pre-2018 URL schemes are
-# still seen in the wild. Some creators insert a space after 'mega.nz/' before the '#...' so it
-# doesn't get auto-linkified/scraped - `\s*` after the domain absorbs that.
+# `\s*` after the domain also matches a space some creators insert before '#...' to dodge
+# auto-linkification. Both the current and pre-2018 URL schemes are matched.
 MEGA_NEW_FILE_RE = re.compile(r'https?://mega\.(?:nz|co\.nz)/file/([\w-]+)#([\w-]+)', re.I)
 MEGA_NEW_FOLDER_RE = re.compile(r'https?://mega\.(?:nz|co\.nz)/folder/([\w-]+)#([\w-]+)', re.I)
 MEGA_OLD_FOLDER_RE = re.compile(r'https?://mega\.(?:nz|co\.nz)/\s*#F!([\w-]+)!([\w-]+)', re.I)
 MEGA_OLD_FILE_RE = re.compile(r'https?://mega\.(?:nz|co\.nz)/\s*#!([\w-]+)!([\w-]+)', re.I)
-# Mega's own link-level password feature (distinct from an archive password) - megatools can't
-# open these, so they're detected only to be reported as unsupported rather than silently missed.
+# Mega's link-level password feature - megatools can't open these, so they're only detected to
+# be reported as unsupported.
 MEGA_PROTECTED_RE = re.compile(r'https?://mega\.(?:nz|co\.nz)/\s*#P!\S+', re.I)
 
-# Matches an archive-password label in English/Japanese/Chinese/Korean, optionally followed by a
-# colon. The captured value is restricted to ASCII alnum/-/_ : real passwords are practically
-# always plain strings like this, and restricting to that charset is what keeps CJK labels from
-# false-positiving on unrelated words that merely start the same way (e.g. "パスタ" / pasta,
-# which starts with "パス" but continues in kana, not ASCII - see Readme's `external` section for
-# the discovery that prompted this).
-#
-# The Latin "pass"/"password" label requires either a colon or at least one whitespace character
-# before its value - without that, "passenger" would false-positive-match "pass" + "enger". CJK
-# labels don't share that risk (a script change is an unambiguous word boundary on its own), so
-# they additionally allow the value to follow with zero separator at all, e.g. "密码0000" - a
-# real example found with no space and no colon between label and value.
+# The value is restricted to ASCII alnum/-/_ so a CJK label can't false-positive into the kana
+# that follows an unrelated word (e.g. "パスタ" / pasta). Latin "pass"/"password" requires a
+# colon or whitespace before the value ("passenger" shouldn't match); CJK labels don't need a
+# separator at all, since a script change is already an unambiguous boundary (e.g. "密码0000").
 _LATIN_LABEL = r'pass(?:word)?'
 _CJK_LABEL = r'パスワード|パス|密码|解压密码|口令|비밀번호|암호'
 _VALUE = r'[A-Za-z0-9][A-Za-z0-9_\-]{1,39}'
@@ -54,9 +43,8 @@ PASSWORD_RE = re.compile(
     re.I)
 
 def _find_password_near(text: str, start: int, end: int, window: int = 300) -> str | None:
-    """Best-effort scrape for a password near an external link's position in the post's plain
-    text. Checks the text after the link first (the common placement in practice), then before
-    it. Returns None often - most creators don't password-protect these links at all."""
+    """Best-effort scrape for a password near a link's position in the post's plain text - checks
+    after the link first, then before. Often returns None."""
 
     m = PASSWORD_RE.search(text[end:end + window])
     if not m:
@@ -69,13 +57,10 @@ def _find_password_near(text: str, start: int, end: int, window: int = 300) -> s
 def find_external_links(html_content: str) -> list[dict]:
     """Scans a post's HTML content for Google Drive/Mega links pasted into the post body, one
     dict per distinct link: {'platform': 'gdrive'|'mega', 'kind': 'file'|'folder'|'unsupported',
-    'url', 'ref_id', 'password'}. `ref_id` is the Drive file/folder ID or Mega node handle;
-    `password` is a best-effort scrape and is frequently None.
+    'url', 'ref_id', 'password'}. `ref_id` is the Drive file/folder ID or Mega node handle.
 
-    Only matches URLs appearing as plain text/link text, not arbitrary href targets hidden
-    behind different link text (e.g. a link literally reading "click here") - in practice every
-    creator observed during development pastes the raw URL directly, so this covers the common
-    case without the complexity of separately tracking href vs. visible-text offsets."""
+    Only matches URLs appearing as plain text, not an href hidden behind different link text
+    (e.g. "click here")."""
 
     if not html_content:
         return []
@@ -225,13 +210,11 @@ def _run_megatools(args: list[str], input_text: str | None = None, timeout: int 
         raise ListingError(f"megatools timed out running: {' '.join(args)}") from e
 
 def list_mega_folder(url: str) -> list[dict]:
-    """Enumerates a Mega folder link's contents without downloading anything, via `megatools dl
-    --choose-files`, which prints a numbered listing before prompting for a selection - piping in
-    a non-numeric answer aborts after the listing with no download. Returns one dict per file:
-    {'number', 'name', 'path'} - 'number' is only valid for a subsequent call against this same
-    link (Mega folder contents can change between calls). 'path' reconstructs the file's location
-    within the folder from the listing's indentation, so it's approximate for deeply-nested
-    folders rather than a guaranteed-exact remote path."""
+    """Enumerates a Mega folder link's contents via `megatools dl --choose-files`, aborting
+    before any download by piping in a non-numeric answer. Returns one dict per file: {'number',
+    'name', 'path'} - 'number' is only valid against a listing made just before it's used, since
+    folder contents can change between calls. 'path' is reconstructed from the listing's
+    indentation, so it's approximate for deeply-nested folders."""
 
     result = _run_megatools(
         ['dl', '--choose-files', '--no-progress', '--path', config.TEMP_DIR, url],
@@ -276,10 +259,8 @@ def download_mega_selection(url: str, numbers: list[int], dest_dir: str) -> None
     os.makedirs(dest_dir, exist_ok=True)
     selection = ' '.join(str(n) for n in numbers)
 
-    # No per-attempt retry here (unlike the kemono/Drive paths) - megatools already resumes
-    # partial downloads internally, and a multi-GB folder selection can legitimately run for
-    # hours, so a generous fixed ceiling (rather than DOWNLOAD_MAX_ATTEMPTS-many short attempts)
-    # is what actually matches how long these transfers take.
+    # megatools resumes partial downloads itself, and a multi-GB selection can run for hours, so
+    # this is one generous timeout rather than several short DOWNLOAD_MAX_ATTEMPTS-style retries.
     result = _run_megatools(
         ['dl', '--choose-files', '--no-progress', '--path', dest_dir, url],
         input_text=selection + '\n', timeout=14400,

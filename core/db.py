@@ -78,11 +78,8 @@ def get_creator_hashes(service: str, id: str) -> set[str]:
     return {row['hash'] for row in rows}
 
 def get_creator_external_urls(service: str, id: str) -> set[str]:
-    """Returns the `url` (a 'gdrive:<id>' / 'mega:<folder>:<path>' identity, not a real
-    download URL - see File's 'source'/'ref_id' fields) of every previously-recorded external
-    file for this creator. Used as the pre-download dedup check for Drive/Mega links, since
-    (unlike kemono's own URLs) neither platform's link encodes a content hash we could check
-    before fetching the bytes."""
+    """Returns the `url` identity (e.g. 'gdrive:<id>') of every recorded external file for this
+    creator - the pre-download dedup check for Drive/Mega links."""
 
     conn = get_connection()
     rows = conn.execute(

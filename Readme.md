@@ -254,8 +254,7 @@ filtering (applied to the linked file's own name, once it's known).
   the `megatools` binary, bundled in the Docker image. A whole shared folder is listed and
   downloaded through it directly; only files not already recorded for that creator are selected.
   Mega's own *link-level* password feature (a `mega.nz/#P!...` URL — distinct from an archive
-  password, and rare) isn't supported by `megatools` and is skipped with a warning rather than
-  silently failing.
+  password, and rare) isn't supported by `megatools` and is skipped with a warning.
 - **Downloads run in their own worker pools**, separate from the main kemono download pool and
   from each other: Drive and kemono files share retry/backoff logic but are otherwise independent,
   while Mega downloads are grouped by shared link (a whole folder link downloads in one
