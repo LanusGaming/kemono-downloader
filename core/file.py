@@ -5,6 +5,7 @@ from .files import generate_hash
 from .network import SESSION, get_headers
 from . import config
 from .config import DATA_DIR, TEMP_DIR
+from .summary import NotFoundError, DownloadTimeoutError
 from .utils import *
 
 logger = logging.getLogger("downloader")
@@ -62,11 +63,12 @@ class File:
     def get_dest_download_path(self) -> str:
         return DATA_DIR + os.path.join(self.get_folder_path(), self.get_filename())
     
-    def download(self) -> bool:
+    def download(self) -> None:
         """Downloads self.url to a temp path and moves it to its destination on success,
         retrying up to DOWNLOAD_MAX_ATTEMPTS times. A 404 fails immediately with no retry (the
         file isn't imported on the mirror yet); a 502 always waits 5s regardless of
-        DOWNLOAD_RETRY_DELAY. Sets self.path/self.hash on success."""
+        DOWNLOAD_RETRY_DELAY. Sets self.path/self.hash on success. Raises NotFoundError on a 404,
+        or DownloadTimeoutError once retries are exhausted."""
 
         temp_path = self.get_temp_download_path()
         dest_path = self.get_dest_download_path()
@@ -93,7 +95,7 @@ class File:
                     logger.warning(f"Skipping retries (404) -> {dest_path}")
                     if os.path.exists(temp_path):
                         os.remove(temp_path)
-                    return False
+                    raise NotFoundError(f"404 -> {dest_path}") from e
 
                 wait_time = config.DOWNLOAD_RETRY_DELAY
 
@@ -109,8 +111,8 @@ class File:
                 else:
                     if os.path.exists(temp_path):
                         os.remove(temp_path)
-                    
-                    return False
+
+                    raise DownloadTimeoutError(str(e)) from e
 
         logger.info(f"Finished download -> {dest_path}")
         
@@ -127,5 +129,3 @@ class File:
 
         self.path = dest_path
         self.hash = generate_hash(dest_path)
-
-        return True

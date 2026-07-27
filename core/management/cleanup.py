@@ -3,6 +3,7 @@ import os, logging
 from ..creator import Creator
 from ..file import File
 from ..files import is_archive, get_thread_lock
+from ..summary import DownloadError
 from .. import db
 
 logger = logging.getLogger("downloader")
@@ -30,7 +31,9 @@ def unpack(creator: Creator, file: File) -> bool:
     cleanup() calls."""
 
     logger.debug(f"Extracting... -> {file.path}")
-    if not creator.unpack(file):
+    try:
+        creator.unpack(file)
+    except DownloadError:
         logger.error(f"Extraction failed -> {file.path}")
         return False
 

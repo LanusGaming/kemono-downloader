@@ -280,11 +280,15 @@ Just make sure the two containers sit on a common network, so the webhook can be
 
 ## Logs & Failures
 Everything under `config/`, alongside the config files and database:
-- `config/logs/<timestamp>.log` — a full debug-level log for each run.
+- `config/logs/<timestamp>.log` — a full debug-level log for each run. The end of the log includes
+  a run summary: totals of files downloaded/skipped/failed (with failure reasons), and a
+  per-creator breakdown for creators that had files processed or that failed entirely.
 - `config/failed/<timestamp>.json` — one JSON object per line for each file that failed to
-  download or extract during that run, with its full metadata (creator, post, URL, path) for
-  troubleshooting or manual retry.
-- Both are pruned automatically per `LOG_RETENTION_DAYS`.
+  download or extract during that run, with its full metadata (creator, post, URL, path) and a
+  `reason` field, for troubleshooting or manual retry.
+- `config/summary/<timestamp>.json` — the same run summary that's printed at the end of the log,
+  as structured JSON.
+- All three are pruned automatically per `LOG_RETENTION_DAYS`.
 - `config/kemono.db` — the SQLite database of known creators, posts, and files.
 
 ## Building From Source

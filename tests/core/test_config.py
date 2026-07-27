@@ -30,6 +30,7 @@ def test_init_creates_expected_directories(tmp_dirs):
     assert os.path.isdir(tmp_dirs["config"])
     assert os.path.isdir(tmp_dirs["config"] / "logs")
     assert os.path.isdir(tmp_dirs["config"] / "failed")
+    assert os.path.isdir(tmp_dirs["config"] / "summary")
     assert os.path.isdir(tmp_dirs["data"])
     assert os.path.isdir(tmp_dirs["temp"])
 
@@ -77,19 +78,23 @@ def test_prune_old_logs_removes_only_files_older_than_retention(tmp_dirs):
     old_log = tmp_dirs["config"] / "logs" / "old.log"
     new_log = tmp_dirs["config"] / "logs" / "new.log"
     old_failed = tmp_dirs["config"] / "failed" / "old.json"
+    old_summary = tmp_dirs["config"] / "summary" / "old.json"
     old_log.write_text("old")
     new_log.write_text("new")
     old_failed.write_text("old")
+    old_summary.write_text("old")
 
     now = os.path.getmtime(new_log)
     old_time = now - 30 * 86400
     os.utime(old_log, (old_time, old_time))
     os.utime(old_failed, (old_time, old_time))
+    os.utime(old_summary, (old_time, old_time))
 
     config._prune_old_logs(retention_days=14)
 
     assert not old_log.exists()
     assert not old_failed.exists()
+    assert not old_summary.exists()
     assert new_log.exists()
 
 

@@ -37,6 +37,7 @@ def tmp_dirs(tmp_path, monkeypatch):
     config_dir.mkdir()
     (config_dir / "logs").mkdir()
     (config_dir / "failed").mkdir()
+    (config_dir / "summary").mkdir()
     temp_dir.mkdir()
 
     monkeypatch.setattr(core.config, "DATA_DIR", str(data_dir))

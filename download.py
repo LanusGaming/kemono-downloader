@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-import logging, os
+import json, logging, os
 from core import config
 from core.creator import Creator
 from core.kemono import get_favorite_creators
 from core.files import get_creators_from_file, get_creators_from_data_dir
 from core.management.album_creator import trigger_album_creator
+from core.summary import CreatorSummary, RunSummary
 
 logger = logging.getLogger("downloader")
 
@@ -47,13 +48,23 @@ def main():
 
     creators_info = resolve_creators(config.CREATORS_FROM_DATA, config.CREATOR_URL_FILE)
 
+    run_summary = RunSummary()
+
     for service, id in creators_info:
         try:
             creator = Creator(service, id)
-            creator.download()
+            run_summary.creators.append(creator.download())
         except Exception as e:
             logger.error(f"Failed processing creator {service}/{id}: {e}")
+            run_summary.creators.append(CreatorSummary(
+                service=service, id=id, status='failed', error=str(e)))
             continue
+
+    logger.info(run_summary.render_text())
+
+    summary_path = f"{config.CONFIG_DIR}/summary/{config.RUN_TIMESTAMP}.json"
+    with open(summary_path, 'w', encoding='utf-8') as f:
+        json.dump(run_summary.to_dict(), f, indent=2)
 
     if config.TRIGGER_ALBUM_CREATOR:
         trigger_album_creator(config.ALBUM_CREATOR_WEBHOOK_URL)

@@ -7,6 +7,7 @@ import pytest
 import core.creator as creator_module
 from core.creator import Creator
 from core.file import File
+from core.summary import FileOutcome, ExtractionError
 
 
 def make_plain_zip(path, files):
@@ -160,7 +161,7 @@ def test_download_skips_post_with_has_full_false(make_creator, monkeypatch):
     monkeypatch.setattr(creator_module, "get_all_posts_from_creator", lambda *a, **k: [post])
     monkeypatch.setattr(creator_module.time, "sleep", lambda s: None)
     downloaded = []
-    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: True for f in files})[1])
+    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: FileOutcome('success') for f in files})[1])
 
     creator.download()
 
@@ -174,7 +175,7 @@ def test_download_does_not_skip_post_when_has_full_absent(make_creator, monkeypa
     monkeypatch.setattr(creator_module, "get_all_posts_from_creator", lambda *a, **k: [post])
     monkeypatch.setattr(creator_module.time, "sleep", lambda s: None)
     downloaded = []
-    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: True for f in files})[1])
+    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: FileOutcome('success') for f in files})[1])
 
     creator.download()
 
@@ -190,7 +191,7 @@ def test_download_exclude_regex_has_zero_effect_when_include_regex_set(make_crea
     monkeypatch.setattr(creator_module, "get_all_posts_from_creator", lambda *a, **k: [post])
     monkeypatch.setattr(creator_module.time, "sleep", lambda s: None)
     downloaded = []
-    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: True for f in files})[1])
+    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: FileOutcome('success') for f in files})[1])
 
     creator.download()
 
@@ -203,7 +204,7 @@ def test_download_dedups_by_hash(make_creator, monkeypatch):
     monkeypatch.setattr(creator_module, "get_all_posts_from_creator", lambda *a, **k: [post])
     monkeypatch.setattr(creator_module.time, "sleep", lambda s: None)
     downloaded = []
-    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: True for f in files})[1])
+    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: FileOutcome('success') for f in files})[1])
 
     # Pre-seed the hash this file's URL would resolve to, simulating "already downloaded".
     from core.utils import get_hash_from_url
@@ -222,7 +223,7 @@ def test_download_missing_published_uses_next_post_when_first(make_creator, monk
     monkeypatch.setattr(creator_module, "get_all_posts_from_creator", lambda *a, **k: [post_no_date, post_with_date])
     monkeypatch.setattr(creator_module.time, "sleep", lambda s: None)
     downloaded = []
-    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: True for f in files})[1])
+    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: FileOutcome('success') for f in files})[1])
 
     creator.download()
 
@@ -238,7 +239,7 @@ def test_download_missing_published_uses_previous_post_when_not_first(make_creat
     monkeypatch.setattr(creator_module, "get_all_posts_from_creator", lambda *a, **k: [post_with_date, post_no_date])
     monkeypatch.setattr(creator_module.time, "sleep", lambda s: None)
     downloaded = []
-    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: True for f in files})[1])
+    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: FileOutcome('success') for f in files})[1])
 
     creator.download()
 
@@ -254,7 +255,7 @@ def test_download_missing_published_falls_back_to_now_when_no_neighbors(make_cre
     monkeypatch.setattr(creator_module.time, "sleep", lambda s: None)
     monkeypatch.setattr(creator_module.time, "time", lambda: 999999.0)
     downloaded = []
-    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: True for f in files})[1])
+    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: FileOutcome('success') for f in files})[1])
 
     creator.download()
 
@@ -281,9 +282,8 @@ def test_unpack_tries_known_password_before_archive_passwords(make_creator, monk
     monkeypatch.setattr(creator_module, "extract", fake_extract)
 
     file = File({'path': str(tmp_path / "archive.zip"), 'hash': 'x', 'published': 1000.0, 'index': 0})
-    result = creator.unpack(file)
+    creator.unpack(file)
 
-    assert result is True
     assert calls == ['known-pwd']  # only the known password was tried
 
 
@@ -302,9 +302,8 @@ def test_unpack_persists_newly_learned_password(make_creator, monkeypatch, tmp_p
         'path': str(archive_path), 'hash': 'x', 'published': 1000.0, 'index': 0,
         'post_id': 'p1', 'creator_id': creator.id, 'creator_service': creator.service,
     })
-    result = creator.unpack(file)
+    creator.unpack(file)
 
-    assert result is True
     assert 'new-pwd' in creator.ARCHIVE_PASSWORDS
 
     conf_path = creator._config_path()
@@ -329,9 +328,9 @@ def test_unpack_runtime_error_tries_next_password_other_exception_aborts(make_cr
     monkeypatch.setattr(creator_module, "extract", fake_extract)
 
     file = File({'path': str(tmp_path / "archive.zip"), 'hash': 'x', 'published': 1000.0, 'index': 0})
-    result = creator.unpack(file)
+    with pytest.raises(ExtractionError):
+        creator.unpack(file)
 
-    assert result is False
     assert calls == ['A', 'B']
 
 
@@ -358,9 +357,8 @@ def test_unpack_dedups_and_filters_extracted_entries(make_creator, monkeypatch, 
         'path': str(archive_path), 'hash': 'x', 'published': 1000.0, 'index': 0,
         'post_id': 'p1', 'creator_id': creator.id, 'creator_service': creator.service,
     })
-    result = creator.unpack(file)
+    creator.unpack(file)
 
-    assert result is True
     saved = fresh_db.get_files_for_creator(creator.service, creator.id)
     saved_names = {s['name'] for s in saved if s['type'] == 'archive'}
     assert saved_names == {'keep.jpg'}

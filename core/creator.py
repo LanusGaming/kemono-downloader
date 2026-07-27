@@ -1,5 +1,6 @@
 import json, os, logging, re, shutil
 from bs4 import BeautifulSoup
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .files import extract, is_archive, get_thread_lock, generate_hash
@@ -10,6 +11,11 @@ from .utils import *
 from . import config as app_config
 from . import conf
 from . import db
+from . import summary
+from .summary import (
+    DownloadError, ArchivePasswordMissingError, ArchivePasswordIncorrectError, ExtractionError,
+    CreatorSummary, FileOutcome,
+)
 
 logger = logging.getLogger("downloader")
 failure_logger = logging.getLogger("failed")
@@ -173,11 +179,11 @@ class Creator:
 
         return (files, skipped)
 
-    def download(self):
+    def download(self) -> CreatorSummary:
         """Fetches all posts, detects and filters their files (has_full=False skip, then
         INCLUDE/EXCLUDE_REGEX on the post title, then hash dedup against self.hashes), then
         downloads what's new. A file with no publish date borrows a neighboring post's date as a
-        fallback."""
+        fallback. Returns a CreatorSummary of what happened."""
 
         logger.info(f"Fetching creator posts...")
         posts = get_all_posts_from_creator(self.service, self.id)
@@ -239,19 +245,43 @@ class Creator:
 
         not_imported_note = f" - {not_imported} posts not yet imported" if not_imported else ""
         logger.info(f"Found {len(files) + sum(skipped.values())} files ({sum(skipped.values())} skipped - {skipped['attachments']} ATTACH - {skipped['regex']} REGEX - {skipped['existing']} EXIST){not_imported_note}")
+
+        creator_summary = CreatorSummary(
+            service=self.service, id=self.id, name=self.name,
+            files_skipped={
+                reason: count for reason, count in {
+                    summary.SKIP_FILTERED: skipped['attachments'],
+                    summary.SKIP_REGEX: skipped['regex'],
+                    summary.SKIP_EXISTING: skipped['existing'],
+                }.items() if count > 0
+            },
+            posts_not_imported=not_imported,
+        )
+
         if len(files) == 0:
             logger.info("Skipping...")
             time.sleep(3)
-            return
+            creator_summary.status = 'no_new_files'
+            return creator_summary
 
         logger.info(f"Starting download for {len(files)} files...")
         res = self.download_all_files(files)
 
-        success = sum(v for v in res.values())
+        success = sum(1 for outcome in res.values() if outcome.status == 'success')
         logger.info(f"Downloaded {success}/{len(files)} files")
         time.sleep(5)
-    
-    def download_all_files(self, files: list[File], max_workers: int = 5) -> dict[File, bool]:
+
+        failed_counts = Counter()
+        for outcome in res.values():
+            if outcome.status == 'failed':
+                failed_counts[outcome.reason] += 1
+
+        creator_summary.files_downloaded = success
+        creator_summary.files_failed = dict(failed_counts)
+        creator_summary.status = 'completed'
+        return creator_summary
+
+    def download_all_files(self, files: list[File], max_workers: int = 5) -> dict[File, FileOutcome]:
         results = {}
         with ThreadPoolExecutor(max_workers=max_workers) as exe:
             futures = {exe.submit(self.download_file, file): file for file in files}
@@ -262,14 +292,16 @@ class Creator:
 
         return results
 
-    def download_file(self, file: File) -> bool:
+    def download_file(self, file: File) -> FileOutcome:
         """Downloads and records one file, auto-extracting it if it's an archive. On extraction
         failure, deletes the archive (to retry next run) unless KEEP_FAILED_ARCHIVES is set."""
 
-        if not file.download():
+        try:
+            file.download()
+        except DownloadError as e:
             logger.error(f"Download failed -> {file.get_dest_download_path()}")
-            failure_logger.error(json.dumps(file.get_data()))
-            return False
+            failure_logger.error(json.dumps({**file.get_data(), 'reason': e.reason}))
+            return FileOutcome('failed', e.reason)
 
         logger.debug(f"Saving file data... -> {file.path}")
         with get_thread_lock():
@@ -278,27 +310,30 @@ class Creator:
         if self.AUTO_UNZIP and is_archive(file.path):
             logger.info(f"Extracting... -> {file.path}")
 
-            if not self.unpack(file):
+            try:
+                self.unpack(file)
+            except DownloadError as e:
                 logger.error(f"Extraction failed -> {file.path}")
-                failure_logger.error(json.dumps(file.get_data()))
+                failure_logger.error(json.dumps({**file.get_data(), 'reason': e.reason}))
                 if self.KEEP_FAILED_ARCHIVES:
                     logger.info(f"Keeping failed archive (KEEP_FAILED_ARCHIVES=true) -> {file.path}")
                 else:
                     with get_thread_lock():
                         db.delete_file(file.id)
                     os.remove(file.path)
-                return False
+                return FileOutcome('failed', e.reason)
 
             if not self.KEEP_UNPACKED_ARCHIVES:
                 os.remove(file.path)
 
-        return True
+        return FileOutcome('success')
 
-    def unpack(self, file: File) -> bool:
+    def unpack(self, file: File) -> None:
         """Extracts `file`'s archive, trying kemono's known password for its hash before
         ARCHIVE_PASSWORDS. A newly discovered password is persisted via save_config(). Each
         extracted entry is recorded as its own File, skipping ones that duplicate an existing
-        hash or have a disallowed extension."""
+        hash or have a disallowed extension. Raises ArchivePasswordMissingError /
+        ArchivePasswordIncorrectError / ExtractionError on failure."""
 
         files = []
         passwords = []
@@ -340,11 +375,17 @@ class Creator:
             except Exception as e:
                 logger.warning(f"An error occured during extraction -> {file.path}")
                 logger.warning(f"[Exception] {e}")
-                return False
+                raise ExtractionError(str(e)) from e
 
         if not success:
             logger.warning(f"Could not find matching password -> {file.path}")
-            return False
+            # Only "no real password was ever tried" counts as missing - the default config
+            # always includes a blank/None entry to test "no password", so an empty `passwords`
+            # list isn't the right signal (see core/conf.py's list parser).
+            if not any(passwords):
+                raise ArchivePasswordMissingError(f"No password configured -> {file.path}")
+            else:
+                raise ArchivePasswordIncorrectError(f"No matching password -> {file.path}")
 
         logger.debug(f"Renaming archive files... -> {file.path}")
         archive_folder = os.path.splitext(file.path)[0]
@@ -382,5 +423,3 @@ class Creator:
                 self.save_file(archive_file)
 
         os.utime(archive_folder, (file.published, file.published))
-
-        return True
