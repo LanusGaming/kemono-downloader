@@ -102,25 +102,28 @@ class Creator:
 
         file.id = db.insert_file(file)
     
-    def detect_files_in_post(self, post: dict) -> tuple[list[File], int]:
+    def detect_files_in_post(self, post: dict, include_kemono_files: bool = True) -> tuple[list[File], int]:
         """Collects the post's thumbnail, attachments, (if allowed) embedded images, and (if
         allowed) linked-out Google Drive/Mega files into File objects, applying
         ALLOWED_TYPES/ALLOWED_EXTENSIONS. Returns (files, skipped count) - does not check against
-        already-downloaded hashes."""
+        already-downloaded hashes. include_kemono_files=False skips the thumbnail/attachment/embed
+        detection - for a post not yet imported by the mirror, whose external links (unlike its
+        own kemono-hosted files) are still resolvable."""
 
         file_datas = []
         index = 0
 
-        if 'file' in post and post['file'] and 'path' in post['file']:
-            file_data = post['file']
-            file_datas.append((file_data['path'], file_data.get('name', ''), index, 'thumbnail'))
-            index += 1
+        if include_kemono_files:
+            if 'file' in post and post['file'] and 'path' in post['file']:
+                file_data = post['file']
+                file_datas.append((file_data['path'], file_data.get('name', ''), index, 'thumbnail'))
+                index += 1
 
-        if 'attachments' in post:
-            for attachment in post['attachments']:
-                if isinstance(attachment, dict) and 'path' in attachment:
-                    file_datas.append((attachment['path'], attachment.get('name', ''), index, 'attachment'))
-                    index += 1
+            if 'attachments' in post:
+                for attachment in post['attachments']:
+                    if isinstance(attachment, dict) and 'path' in attachment:
+                        file_datas.append((attachment['path'], attachment.get('name', ''), index, 'attachment'))
+                        index += 1
 
         # Embeds and external links both need the post's full HTML content. kemono.cr's
         # post-list response only has a truncated `substring` and needs an extra API call for
@@ -134,7 +137,7 @@ class Creator:
                 # kemono.cr wraps the post as {"post": {...}}; pawchive.pw returns it flat.
                 content = post_data.get('post', post_data).get('content')
 
-        if content and (not self.ALLOWED_TYPES or 'embed' in self.ALLOWED_TYPES):
+        if include_kemono_files and content and (not self.ALLOWED_TYPES or 'embed' in self.ALLOWED_TYPES):
             soup = BeautifulSoup(content, 'html.parser')
 
             for img in soup.select('img[src]'):
@@ -288,12 +291,15 @@ class Creator:
         not_imported = 0
         for i, post in enumerate(posts):
             # Some mirrors mark posts whose files haven't been imported yet with has_full=False -
-            # kemono.cr itself has no such field, so only act on it when present.
-            if post.get('has_full') is False:
+            # kemono.cr itself has no such field, so only act on it when present. External links
+            # don't depend on kemono's own import, so they're still checked if enabled.
+            not_yet_imported = post.get('has_full') is False
+            if not_yet_imported:
                 not_imported += 1
-                continue
+                if 'external' not in self.ALLOWED_TYPES:
+                    continue
 
-            post_files, post_skipped = self.detect_files_in_post(post)
+            post_files, post_skipped = self.detect_files_in_post(post, include_kemono_files=not not_yet_imported)
             skipped["attachments"] += post_skipped
 
             if self.INCLUDE_REGEX:

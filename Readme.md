@@ -240,6 +240,8 @@ follow those links and download what's behind them, through the same dedup, extr
 
 - **Opt-in only** — `external` is never implied by an empty `ALLOWED_TYPES`, since resolving a
   link costs an extra network call per link found.
+- **Checked even for a post the mirror hasn't imported yet** (`has_full=false`) — unlike
+  attachments/thumbnails/embeds, a Drive/Mega link doesn't depend on kemono's own file import.
 - **Passwords**, if present near the link in the post text, are scraped and tried before
   `ARCHIVE_PASSWORDS`.
 - **Google Drive** links (file or folder, folders enumerated recursively) are resolved via the

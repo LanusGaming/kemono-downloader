@@ -216,6 +216,20 @@ def test_detect_files_external_not_implied_by_empty_allowed_types(make_creator, 
     assert [f.type for f in files] == []
 
 
+def test_detect_files_include_kemono_files_false_skips_attachments_but_finds_external(make_creator, monkeypatch):
+    creator = make_creator()
+    creator.ALLOWED_TYPES = ['attachment', 'external']
+    post = make_post(
+        attachments=[{'path': '/data/a.jpg', 'name': 'a.jpg'}],
+        content='<p>https://drive.google.com/file/d/abc123def456ghi789jkl/view</p>', substring='x',
+    )
+    monkeypatch.setattr(external_module, "list_gdrive", lambda link: [{'id': 'abc123def456ghi789jkl', 'name': 'archive.zip', 'size': 100}])
+
+    files, skipped = creator.detect_files_in_post(post, include_kemono_files=False)
+
+    assert [f.type for f in files] == ['external']
+
+
 def test_detect_files_external_gdrive_file_produces_file_with_scraped_password(make_creator, monkeypatch):
     creator = make_creator()
     creator.ALLOWED_TYPES = ['external']
@@ -308,6 +322,27 @@ def test_download_skips_post_with_has_full_false(make_creator, monkeypatch):
     creator.download()
 
     assert downloaded == []
+
+
+def test_download_still_checks_external_links_on_a_not_yet_imported_post(make_creator, monkeypatch):
+    # A post's own kemono-hosted files aren't ready yet, but a Drive/Mega link in its text is
+    # unaffected by that - it should still be resolved and downloaded if 'external' is enabled.
+    creator = make_creator()
+    creator.ALLOWED_TYPES = ['attachment', 'external']
+    post = make_post(
+        has_full=False,
+        attachments=[{'path': '/data/a.jpg', 'name': 'a.jpg'}],
+        content='<p>https://drive.google.com/file/d/abc123def456ghi789jkl/view</p>', substring='x',
+    )
+    monkeypatch.setattr(creator_module, "get_all_posts_from_creator", lambda *a, **k: [post])
+    monkeypatch.setattr(creator_module.time, "sleep", lambda s: None)
+    monkeypatch.setattr(external_module, "list_gdrive", lambda link: [{'id': 'abc123def456ghi789jkl', 'name': 'archive.zip', 'size': 100}])
+    downloaded = []
+    monkeypatch.setattr(Creator, "download_all_files", lambda self, files: (downloaded.extend(files), {f: FileOutcome('success') for f in files})[1])
+
+    creator.download()
+
+    assert [f.type for f in downloaded] == ['external']
 
 
 def test_download_does_not_skip_post_when_has_full_absent(make_creator, monkeypatch):
