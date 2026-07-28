@@ -36,7 +36,7 @@ TRIGGER_ALBUM_CREATOR = False
 ALBUM_CREATOR_WEBHOOK_URL = 'http://album-creator:8080/run'
 DOWNLOAD_MAX_ATTEMPTS = 60
 DOWNLOAD_RETRY_DELAY = 1
-EXTERNAL_DRIVE_DELAY = 1
+EXTERNAL_DRIVE_DELAY = 5
 
 RUN_TIMESTAMP = ''  # set once in _setup_loggers() - shared by the log/failed/summary filenames
                      # for a run, so they can be correlated by name

@@ -39,5 +39,6 @@ DOWNLOAD_MAX_ATTEMPTS=60
 DOWNLOAD_RETRY_DELAY=1
 
 # Seconds to wait before each Google Drive download request - Google rate-limits bursty download
-# traffic per-IP, so this paces requests to avoid triggering it. Raise if you still hit it.
-EXTERNAL_DRIVE_DELAY=1
+# traffic per-IP, so this paces requests to avoid triggering it. Raise if you still hit it -
+# even fully serial downloads with a 1s delay tripped it in testing.
+EXTERNAL_DRIVE_DELAY=5

@@ -373,11 +373,11 @@ class Creator:
         return creator_summary
 
     def download_all_files(self, files: list[File], max_workers: int = 5,
-                            gdrive_max_workers: int = 2, mega_max_workers: int = 2) -> dict[File, FileOutcome]:
-        """Downloads kemono files through the main pool, Google Drive files through a smaller
-        pool (Google rate-limits bursty download traffic per-IP), and Mega files - grouped by
-        their shared folder/file link, since a whole link downloads in one megatools invocation -
-        through another small pool, for the same per-IP bandwidth-cap reason."""
+                            gdrive_max_workers: int = 1, mega_max_workers: int = 2) -> dict[File, FileOutcome]:
+        """Downloads kemono files through the main pool, Google Drive files one at a time
+        (Google's per-IP anti-automation block reacted to just 2 concurrent, paced downloads in
+        testing), and Mega files - grouped by their shared folder/file link, since a whole link
+        downloads in one megatools invocation - through a small pool, for the same reason."""
 
         kemono_files = [f for f in files if f.source == 'kemono']
         gdrive_files = [f for f in files if f.source == 'gdrive']
