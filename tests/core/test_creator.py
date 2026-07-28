@@ -6,6 +6,7 @@ import pytest
 
 import core.creator as creator_module
 import core.external as external_module
+import core.summary as summary
 from core.creator import Creator
 from core.file import File
 from core.summary import FileOutcome, ExtractionError, QuotaExceededError
@@ -409,6 +410,48 @@ def test_download_all_files_routes_kemono_and_gdrive_through_download_file_mega_
     assert set(direct_calls) == {kemono_file, gdrive_file}
     assert all(outcome.status == 'success' for outcome in results.values())
     assert set(results.keys()) == {kemono_file, gdrive_file, mega_file}
+
+
+def test_download_all_files_stops_gdrive_after_quota_block_without_calling_download_file(make_creator, monkeypatch):
+    creator = make_creator()
+
+    calls = []
+    def fake_download_file(self, file):
+        calls.append(file)
+        if file.name == 'blocks-here.zip':
+            return FileOutcome('failed', summary.FAIL_EXTERNAL_QUOTA)
+        return FileOutcome('success')
+    monkeypatch.setattr(Creator, "download_file", fake_download_file)
+
+    files = [
+        File({'source': 'gdrive', 'ref_id': '1', 'name': 'a.zip', 'type': 'external'}),
+        File({'source': 'gdrive', 'ref_id': '2', 'name': 'blocks-here.zip', 'type': 'external'}),
+        File({'source': 'gdrive', 'ref_id': '3', 'name': 'c.zip', 'type': 'external'}),
+        File({'source': 'gdrive', 'ref_id': '4', 'name': 'd.zip', 'type': 'external'}),
+    ]
+
+    results = creator.download_all_files(files)
+
+    assert [f.name for f in calls] == ['a.zip', 'blocks-here.zip']  # never attempted c.zip/d.zip
+    assert results[files[2]].status == 'failed'
+    assert results[files[2]].reason == summary.FAIL_EXTERNAL_QUOTA
+    assert results[files[3]].reason == summary.FAIL_EXTERNAL_QUOTA
+    assert external_module.is_gdrive_blocked() is True
+
+
+def test_download_all_files_skips_gdrive_entirely_when_already_blocked_from_a_prior_creator(make_creator, monkeypatch):
+    creator = make_creator()
+    external_module.mark_gdrive_blocked()
+
+    calls = []
+    monkeypatch.setattr(Creator, "download_file", lambda self, file: calls.append(file) or FileOutcome('success'))
+
+    gdrive_file = File({'source': 'gdrive', 'ref_id': '1', 'name': 'a.zip', 'type': 'external'})
+    results = creator.download_all_files([gdrive_file])
+
+    assert calls == []
+    assert results[gdrive_file].status == 'failed'
+    assert results[gdrive_file].reason == summary.FAIL_EXTERNAL_QUOTA
 
 
 # --- download_mega_link() ---

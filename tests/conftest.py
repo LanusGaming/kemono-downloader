@@ -17,9 +17,18 @@ import pytest
 
 import core.config
 import core.db
+import core.external
 import core.file
 import core.files
 import core.management.reconcile
+
+
+@pytest.fixture(autouse=True)
+def reset_gdrive_blocked(monkeypatch):
+    """core.external._gdrive_blocked is deliberately process-global (see its own comment) -
+    reset it for every test so one test marking Drive blocked can't leak into the next."""
+
+    monkeypatch.setattr(core.external, "_gdrive_blocked", False)
 
 
 @pytest.fixture

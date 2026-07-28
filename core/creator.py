@@ -373,11 +373,15 @@ class Creator:
         return creator_summary
 
     def download_all_files(self, files: list[File], max_workers: int = 5,
-                            gdrive_max_workers: int = 1, mega_max_workers: int = 2) -> dict[File, FileOutcome]:
+                            mega_max_workers: int = 2) -> dict[File, FileOutcome]:
         """Downloads kemono files through the main pool, Google Drive files one at a time
         (Google's per-IP anti-automation block reacted to just 2 concurrent, paced downloads in
         testing), and Mega files - grouped by their shared folder/file link, since a whole link
-        downloads in one megatools invocation - through a small pool, for the same reason."""
+        downloads in one megatools invocation - through a small pool, for the same reason.
+
+        Once a Drive download comes back quota-blocked, every remaining Drive file across every
+        creator for the rest of the run is failed immediately instead of waiting out
+        EXTERNAL_DRIVE_DELAY first - see external.is_gdrive_blocked()."""
 
         kemono_files = [f for f in files if f.source == 'kemono']
         gdrive_files = [f for f in files if f.source == 'gdrive']
@@ -391,13 +395,15 @@ class Creator:
                 file = futures[fut]
                 results[file] = fut.result()
 
-        if gdrive_files:
-            with ThreadPoolExecutor(max_workers=gdrive_max_workers) as exe:
-                futures = {exe.submit(self.download_file, file): file for file in gdrive_files}
+        for file in gdrive_files:
+            if external.is_gdrive_blocked():
+                results[file] = FileOutcome('failed', summary.FAIL_EXTERNAL_QUOTA)
+                continue
 
-                for fut in as_completed(futures):
-                    file = futures[fut]
-                    results[file] = fut.result()
+            results[file] = self.download_file(file)
+            if results[file].reason == summary.FAIL_EXTERNAL_QUOTA:
+                logger.warning("Google Drive rate limit hit - skipping remaining Drive downloads for this run")
+                external.mark_gdrive_blocked()
 
         if mega_files:
             by_link = {}

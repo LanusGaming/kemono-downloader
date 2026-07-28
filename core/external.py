@@ -100,6 +100,19 @@ def find_external_links(html_content: str) -> list[dict]:
 DRIVE_API_BASE = "https://www.googleapis.com/drive/v3"
 DRIVE_FOLDER_MIMETYPE = 'application/vnd.google-apps.folder'
 
+# Set once a Drive download comes back quota-blocked, so the rest of the run can skip straight
+# to failing instead of paying EXTERNAL_DRIVE_DELAY first. Module-level rather than per-Creator
+# so it persists across every creator in the run - download.py runs as a fresh subprocess each
+# time (see scheduler.py), so this resets naturally on the next run.
+_gdrive_blocked = False
+
+def is_gdrive_blocked() -> bool:
+    return _gdrive_blocked
+
+def mark_gdrive_blocked() -> None:
+    global _gdrive_blocked
+    _gdrive_blocked = True
+
 def list_gdrive(link: dict) -> list[dict]:
     """Returns one dict per downloadable file for a Drive link: {'id', 'name', 'size'}. A file
     link yields a single entry; a folder link recurses into subfolders (native Google Docs/

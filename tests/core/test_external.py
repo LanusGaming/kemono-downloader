@@ -96,6 +96,12 @@ def test_duplicate_link_only_returned_once():
 
 # --- Google Drive ---
 
+def test_gdrive_blocked_flag_starts_false_and_latches_true():
+    assert external.is_gdrive_blocked() is False
+    external.mark_gdrive_blocked()
+    assert external.is_gdrive_blocked() is True
+
+
 def test_list_gdrive_requires_api_key(monkeypatch):
     monkeypatch.setattr(core.config, "GOOGLE_API_KEY", '')
     with pytest.raises(ListingError, match="GOOGLE_API_KEY"):

@@ -268,6 +268,11 @@ filtering (applied to the linked file's own name, once it's known).
   broader anti-automation block, or Mega's bandwidth cap) fails that file immediately without
   retrying within the run and shows up in the run summary as `external_quota_exceeded` - these
   reset on their own schedule, not by waiting a few seconds.
+- **Once Google's block is hit, every remaining Drive download for the rest of the run is failed
+  immediately** instead of waiting out `EXTERNAL_DRIVE_DELAY` first — the block doesn't clear
+  itself mid-run, so there's no point paying that delay just to fail again. This applies for the
+  rest of the run across every creator, not just the one that triggered it, since the block is
+  per-IP, not per-creator. It's retried fresh on the next run.
 
 ## Scheduling
 Controlled entirely by `CRON_EXPRESSION` and `RUN_IMMEDIATELY` in
