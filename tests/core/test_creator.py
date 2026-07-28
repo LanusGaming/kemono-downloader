@@ -186,6 +186,20 @@ def test_detect_files_uses_content_already_on_post_without_extra_api_call(make_c
     assert [f.type for f in files] == ['embed']
 
 
+def test_detect_files_scrapes_post_password_for_regular_attachments(make_creator):
+    # A password given in the post text should apply to a plain attachment too, not just
+    # 'external' Drive/Mega files - it's the same real-world pattern either way.
+    creator = make_creator()
+    post = make_post(
+        attachments=[{'path': '/data/a.zip', 'name': 'a.zip'}],
+        content='<p>pass : raigyocreative</p>', substring='x',
+    )
+
+    files, skipped = creator.detect_files_in_post(post)
+
+    assert files[0].password == 'raigyocreative'
+
+
 # --- detect_files_in_post() - external links ---
 
 def test_detect_files_external_not_implied_by_empty_allowed_types(make_creator, monkeypatch):
@@ -569,6 +583,38 @@ def test_download_mega_link_download_error_fails_all_files_in_link(make_creator,
     assert results[file_b].status == 'failed'
 
 
+def test_download_mega_link_salvages_completed_files_when_batch_fails_partway(make_creator, monkeypatch, fresh_db):
+    # A stall/quota block partway through a multi-file selection shouldn't discard files that
+    # had already fully downloaded before it hit - only the genuinely incomplete one should fail.
+    creator = make_creator()
+    fresh_db.ensure_creator(creator.service, creator.id, creator.name, creator.last_imported)
+    fresh_db.upsert_post(creator.service, creator.id, 'p1', 'Post', 1000.0)
+
+    file_done = make_mega_file(creator, ref_id='Set/done.bin', link_url='https://mega.nz/folder/x#y', name='done.bin')
+    file_stuck = make_mega_file(creator, ref_id='Set/stuck.bin', link_url='https://mega.nz/folder/x#y', name='stuck.bin')
+
+    monkeypatch.setattr(creator_module.external, "list_mega_folder", lambda url: [
+        {'number': 2, 'name': 'done.bin', 'path': 'Set/done.bin', 'size': 5},
+        {'number': 3, 'name': 'stuck.bin', 'path': 'Set/stuck.bin', 'size': 999},
+    ])
+
+    def fake_selection(url, numbers, dest_dir):
+        os.makedirs(os.path.join(dest_dir, 'Set'), exist_ok=True)
+        with open(os.path.join(dest_dir, 'Set/done.bin'), 'wb') as f:
+            f.write(b'abcde')  # matches the listed size - fully downloaded
+        with open(os.path.join(dest_dir, 'Set/stuck.bin'), 'wb') as f:
+            f.write(b'ab')  # short of the listed size - was mid-transfer when it stalled
+        raise QuotaExceededError("stalled")
+    monkeypatch.setattr(creator_module.external, "download_mega_selection", fake_selection)
+
+    results = creator.download_mega_link('https://mega.nz/folder/x#y', [file_done, file_stuck])
+
+    assert results[file_done].status == 'success'
+    assert os.path.exists(file_done.path)
+    assert results[file_stuck].status == 'failed'
+    assert results[file_stuck].reason == 'external_quota_exceeded'
+
+
 # --- unpack() ---
 
 def test_unpack_tries_scraped_external_password_before_archive_passwords(make_creator, monkeypatch, tmp_path):
@@ -590,6 +636,33 @@ def test_unpack_tries_scraped_external_password_before_archive_passwords(make_cr
     file = File({
         'path': str(tmp_path / "archive.zip"), 'hash': 'x', 'published': 1000.0, 'index': 0,
         'type': 'external', 'password': 'scraped-pwd',
+    })
+    creator.unpack(file)
+
+    assert calls == ['scraped-pwd']
+
+
+def test_unpack_tries_scraped_password_on_a_regular_attachment_too(make_creator, monkeypatch, tmp_path):
+    # file.password can now come from a plain post-text scrape (detect_files_in_post), not just
+    # an 'external' Drive/Mega link - unpack() must try it regardless of file.type.
+    creator = make_creator()
+    creator.ARCHIVE_PASSWORDS = ['other-pwd']
+    monkeypatch.setattr(creator_module, "get_file_data", lambda h: {})
+
+    calls = []
+
+    def fake_extract(path, password):
+        calls.append(password)
+        if password == 'scraped-pwd':
+            os.makedirs(os.path.splitext(path)[0], exist_ok=True)
+            return []
+        raise RuntimeError("wrong password")
+
+    monkeypatch.setattr(creator_module, "extract", fake_extract)
+
+    file = File({
+        'path': str(tmp_path / "archive.zip"), 'hash': 'x', 'published': 1000.0, 'index': 0,
+        'type': 'attachment', 'password': 'scraped-pwd',
     })
     creator.unpack(file)
 

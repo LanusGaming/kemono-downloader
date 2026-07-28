@@ -42,3 +42,8 @@ DOWNLOAD_RETRY_DELAY=1
 # traffic per-IP, so this paces requests to avoid triggering it. Raise if you still hit it -
 # even fully serial downloads with a 1s delay tripped it in testing.
 EXTERNAL_DRIVE_DELAY=5
+
+# Seconds a Mega download can go without writing new bytes before it's treated as stalled and
+# aborted. megatools can hang indefinitely on Mega's anonymous bandwidth quota - using no
+# bandwidth and printing nothing - instead of reporting it as an error.
+MEGA_STALL_TIMEOUT=300

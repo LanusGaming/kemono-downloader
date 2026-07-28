@@ -172,6 +172,11 @@ def extract(filepath: str, password: str) -> list[tuple[str, str]]:
         shutil.rmtree(dir, ignore_errors=True)
 
     os.makedirs(dir)
+
+    # A zero-entry archive (e.g. an empty zip) extracts without error but never creates temp_dir.
+    if not os.path.exists(temp_dir):
+        return []
+
     files, count = recursive_move(temp_dir, dir)
     shutil.rmtree(temp_dir, ignore_errors=True)
 

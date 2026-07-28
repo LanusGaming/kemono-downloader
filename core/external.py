@@ -3,7 +3,7 @@ import requests
 from bs4 import BeautifulSoup
 
 from . import config
-from .summary import QuotaExceededError, UnsupportedLinkError, ExternalDownloadError
+from .summary import QuotaExceededError, UnsupportedLinkError, ExternalDownloadError, DownloadTimeoutError
 
 logger = logging.getLogger("downloader")
 
@@ -54,13 +54,24 @@ def _find_password_near(text: str, start: int, end: int, window: int = 300) -> s
 
     return next((g for g in m.groups() if g), None)
 
-def find_external_links(html_content: str) -> list[dict]:
-    """Scans a post's HTML content for Google Drive/Mega links pasted into the post body, one
-    dict per distinct link: {'platform': 'gdrive'|'mega', 'kind': 'file'|'folder'|'unsupported',
-    'url', 'ref_id', 'password'}. `ref_id` is the Drive file/folder ID or Mega node handle.
+def find_post_password(html_content: str) -> str | None:
+    """Best-effort scrape for a password anywhere in the post's plain text, for archives whose
+    password isn't tied to a specific external link (e.g. a directly-attached protected zip)."""
 
-    Only matches URLs appearing as plain text, not an href hidden behind different link text
-    (e.g. "click here")."""
+    if not html_content:
+        return None
+
+    text = BeautifulSoup(html_content, 'html.parser').get_text('\n')
+    m = PASSWORD_RE.search(text)
+    if not m:
+        return None
+
+    return next((g for g in m.groups() if g), None)
+
+def find_external_links(html_content: str) -> list[dict]:
+    """Scans a post's HTML content for Google Drive/Mega links in plain text (not hidden behind
+    an href with different link text), one dict per distinct link: {'platform': 'gdrive'|'mega',
+    'kind': 'file'|'folder'|'unsupported', 'url', 'ref_id', 'password'}."""
 
     if not html_content:
         return []
@@ -175,11 +186,9 @@ def _gdrive_list_folder(folder_id: str) -> list[dict]:
     return entries
 
 def download_gdrive_file(file_id: str, dest_path: str) -> None:
-    """Streams a Drive file to dest_path via alt=media - unlike the web UI, this API path has no
-    large-file virus-scan-warning step to work around. Raises QuotaExceededError on any 403:
-    besides the documented "download quota exceeded" message, sustained use of one API key can
-    also get a plain-HTML anti-abuse block with no machine-readable reason at all, so any 403 is
-    treated as this rather than retried as a transient error."""
+    """Streams a Drive file to dest_path via alt=media. Raises QuotaExceededError on any 403 -
+    Google's anti-abuse block sometimes returns a plain HTML page with no machine-readable
+    reason, not just the documented "download quota exceeded" message."""
 
     time.sleep(config.EXTERNAL_DRIVE_DELAY)
 
@@ -211,7 +220,16 @@ def download_gdrive_file(file_id: str, dest_path: str) -> None:
 # --- Mega (via the megatools binary - public links need no account) --------------------------
 
 ANSI_RE = re.compile(r'\x1b\[[0-9;]*m')
-_MEGA_LISTING_LINE_RE = re.compile(r'^(\d+)\.\s+(.*?)\s*(?:\([\d.]+\s*\S*\))?$')
+_MEGA_LISTING_LINE_RE = re.compile(r'^(\d+)\.\s+(.*?)\s*(?:\(([\d.]+)\s*(\S*)\))?$')
+_MEGA_SIZE_UNITS = {
+    'B': 1, 'KIB': 1024, 'MIB': 1024**2, 'GIB': 1024**3, 'TIB': 1024**4,
+    'KB': 1000, 'MB': 1000**2, 'GB': 1000**3, 'TB': 1000**4,
+}
+
+def _parse_mega_size(value: str | None, unit: str | None) -> int | None:
+    if not value or unit is None or unit.upper() not in _MEGA_SIZE_UNITS:
+        return None
+    return int(float(value) * _MEGA_SIZE_UNITS[unit.upper()])
 
 def _run_megatools(args: list[str], input_text: str | None = None, timeout: int = 30) -> subprocess.CompletedProcess:
     try:
@@ -224,12 +242,67 @@ def _run_megatools(args: list[str], input_text: str | None = None, timeout: int 
     except subprocess.TimeoutExpired as e:
         raise ListingError(f"megatools timed out running: {' '.join(args)}") from e
 
+def _dir_bytes(path: str) -> int:
+    total = 0
+    for root, _, filenames in os.walk(path):
+        for name in filenames:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                pass
+    return total
+
+def _run_megatools_watched(args: list[str], input_text: str, dest_dir: str, timeout: int,
+                            stall_timeout: int) -> subprocess.CompletedProcess:
+    """Like _run_megatools(), but polls dest_dir's total size and kills the process early if it
+    goes stall_timeout seconds without growing - megatools can hang on Mega's bandwidth quota
+    instead of reporting it as an error."""
+
+    try:
+        proc = subprocess.Popen(
+            [config.MEGATOOLS_BIN, *args], stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        )
+    except FileNotFoundError as e:
+        raise ListingError("megatools binary not found - required for Mega links") from e
+
+    proc.stdin.write(input_text)
+    proc.stdin.close()
+
+    start = last_progress = time.time()
+    last_size = _dir_bytes(dest_dir)
+
+    while True:
+        try:
+            proc.wait(timeout=5)
+            break
+        except subprocess.TimeoutExpired:
+            pass
+
+        now = time.time()
+        size = _dir_bytes(dest_dir)
+        if size != last_size:
+            last_size = size
+            last_progress = now
+
+        if now - last_progress > stall_timeout:
+            proc.kill()
+            proc.wait()
+            raise QuotaExceededError(
+                f"Mega download stalled with no progress for {stall_timeout}s (likely bandwidth quota) -> {dest_dir}")
+
+        if now - start > timeout:
+            proc.kill()
+            proc.wait()
+            raise DownloadTimeoutError(f"megatools timed out after {timeout}s -> {dest_dir}")
+
+    return subprocess.CompletedProcess(args, proc.returncode, proc.stdout.read(), proc.stderr.read())
+
 def list_mega_folder(url: str) -> list[dict]:
     """Enumerates a Mega folder link's contents via `megatools dl --choose-files`, aborting
     before any download by piping in a non-numeric answer. Returns one dict per file: {'number',
-    'name', 'path'} - 'number' is only valid against a listing made just before it's used, since
-    folder contents can change between calls. 'path' is reconstructed from the listing's
-    indentation, so it's approximate for deeply-nested folders."""
+    'name', 'path', 'size'} - 'number' is only valid against a listing made just before it's used;
+    'path' is approximate for deeply-nested folders; 'size' is bytes, or None if not shown."""
 
     result = _run_megatools(
         ['dl', '--choose-files', '--no-progress', '--path', config.TEMP_DIR, url],
@@ -248,7 +321,7 @@ def list_mega_folder(url: str) -> list[dict]:
         if not m:
             continue
 
-        number, name = m.groups()
+        number, name, size_value, size_unit = m.groups()
         is_folder = name.endswith('/')
         name = name.rstrip('/')
 
@@ -260,7 +333,10 @@ def list_mega_folder(url: str) -> list[dict]:
         if is_folder:
             stack.append((depth, name))
         else:
-            entries.append({'number': int(number), 'name': name, 'path': path})
+            entries.append({
+                'number': int(number), 'name': name, 'path': path,
+                'size': _parse_mega_size(size_value, size_unit),
+            })
 
     if not entries and 'ERROR' in result.stdout + result.stderr:
         raise ListingError(f"megatools could not list {url}: {(result.stderr or result.stdout).strip()}")
@@ -275,10 +351,11 @@ def download_mega_selection(url: str, numbers: list[int], dest_dir: str) -> None
     selection = ' '.join(str(n) for n in numbers)
 
     # megatools resumes partial downloads itself, and a multi-GB selection can run for hours, so
-    # this is one generous timeout rather than several short DOWNLOAD_MAX_ATTEMPTS-style retries.
-    result = _run_megatools(
+    # this is one generous overall timeout - MEGA_STALL_TIMEOUT is what actually catches a stuck
+    # transfer in practice.
+    result = _run_megatools_watched(
         ['dl', '--choose-files', '--no-progress', '--path', dest_dir, url],
-        input_text=selection + '\n', timeout=14400,
+        selection + '\n', dest_dir, timeout=14400, stall_timeout=config.MEGA_STALL_TIMEOUT,
     )
     _raise_for_megatools_failure(result, url)
 
@@ -288,7 +365,8 @@ def download_mega_file(url: str, dest_dir: str) -> str:
     os.makedirs(dest_dir, exist_ok=True)
     before = set(os.listdir(dest_dir))
 
-    result = _run_megatools(['dl', '--no-progress', '--path', dest_dir, url], timeout=14400)
+    result = _run_megatools_watched(['dl', '--no-progress', '--path', dest_dir, url], '', dest_dir,
+                                     timeout=14400, stall_timeout=config.MEGA_STALL_TIMEOUT)
     _raise_for_megatools_failure(result, url)
 
     new_files = set(os.listdir(dest_dir)) - before

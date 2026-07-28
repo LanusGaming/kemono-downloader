@@ -144,6 +144,10 @@ class Creator:
 
                 index += 1
 
+        # Best-effort, not link-specific - lets a directly-attached protected archive pick up a
+        # password the creator wrote in the post body instead of only known/configured ones.
+        post_password = external.find_post_password(content) if content else None
+
         files = []
         skipped = 0
 
@@ -184,7 +188,8 @@ class Creator:
                 'index': file_index,
                 'name': sanitize_filename(file_name),
                 'url': file_url,
-                'type': file_type
+                'type': file_type,
+                'password': post_password or '',
             })
 
             files.append(file)
@@ -374,14 +379,10 @@ class Creator:
 
     def download_all_files(self, files: list[File], max_workers: int = 5,
                             mega_max_workers: int = 2) -> dict[File, FileOutcome]:
-        """Downloads kemono files through the main pool, Google Drive files one at a time
-        (Google's per-IP anti-automation block reacted to just 2 concurrent, paced downloads in
-        testing), and Mega files - grouped by their shared folder/file link, since a whole link
-        downloads in one megatools invocation - through a small pool, for the same reason.
-
-        Once a Drive download comes back quota-blocked, every remaining Drive file across every
-        creator for the rest of the run is failed immediately instead of waiting out
-        EXTERNAL_DRIVE_DELAY first - see external.is_gdrive_blocked()."""
+        """Downloads kemono files through the main pool, Drive files one at a time (concurrency
+        tripped Google's anti-automation block in testing), and Mega files - grouped by shared
+        link - through a small pool. Once Drive comes back quota-blocked, every remaining Drive
+        file for the rest of the run fails immediately (see external.is_gdrive_blocked())."""
 
         kemono_files = [f for f in files if f.source == 'kemono']
         gdrive_files = [f for f in files if f.source == 'gdrive']
@@ -433,15 +434,16 @@ class Creator:
 
     def download_mega_link(self, link_url: str, files: list[File]) -> dict[File, FileOutcome]:
         """Downloads every `files` entry from a single shared Mega link in one megatools
-        invocation, then finalizes and records each individually.
-
-        A lone Mega *file* link (files[0].ref_id == '') is fetched directly. Otherwise `files`
-        are folder entries identified by their path, and their megatools selection numbers are
-        re-resolved from a fresh listing here rather than reused from detection time, since
-        folder contents can change in the gap between the two."""
+        invocation, then finalizes and records each individually. A lone file link is fetched
+        directly; a folder's selection numbers are re-resolved from a fresh listing (contents can
+        change between detection and download). On a partial failure, only files not fully on
+        disk (size-checked against the listing) are failed - the rest are still recorded."""
 
         results = {}
         temp_dir = f"{app_config.TEMP_DIR}/mega_{hashlib.sha1(link_url.encode()).hexdigest()}"
+        path_map = {}
+        path_to_entry = {}
+        download_error = None
 
         try:
             if len(files) == 1 and not files[0].ref_id:
@@ -449,17 +451,16 @@ class Creator:
                 path_map = {files[0]: downloaded_path}
             else:
                 fresh_listing = external.list_mega_folder(link_url)
-                path_to_number = {entry['path']: entry['number'] for entry in fresh_listing}
+                path_to_entry = {entry['path']: entry for entry in fresh_listing}
 
                 numbers = []
-                path_map = {}
                 for file in files:
-                    number = path_to_number.get(file.ref_id)
-                    if number is None:
+                    entry = path_to_entry.get(file.ref_id)
+                    if entry is None:
                         logger.warning(f"Mega file no longer found in folder listing -> {file.link_url}/{file.ref_id}")
                         results[file] = FileOutcome('failed', summary.FAIL_NOT_FOUND)
                         continue
-                    numbers.append(number)
+                    numbers.append(entry['number'])
                     path_map[file] = os.path.join(temp_dir, file.ref_id)
 
                 if numbers:
@@ -467,22 +468,27 @@ class Creator:
 
         except DownloadError as e:
             logger.error(f"Mega download failed -> {link_url}")
-            for file in files:
-                if file not in results:
-                    failure_logger.error(json.dumps({**file.get_data(), 'reason': e.reason}))
-                    results[file] = FileOutcome('failed', e.reason)
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            return results
+            download_error = e
 
         for file, src_path in path_map.items():
-            if not os.path.exists(src_path):
+            expected_size = path_to_entry.get(file.ref_id, {}).get('size')
+            complete = os.path.exists(src_path) and (expected_size is None or os.path.getsize(src_path) == expected_size)
+
+            if not complete:
+                reason = download_error.reason if download_error else summary.FAIL_NOT_FOUND
                 logger.error(f"Mega download did not produce the expected file -> {src_path}")
-                failure_logger.error(json.dumps({**file.get_data(), 'reason': summary.FAIL_NOT_FOUND}))
-                results[file] = FileOutcome('failed', summary.FAIL_NOT_FOUND)
+                failure_logger.error(json.dumps({**file.get_data(), 'reason': reason}))
+                results[file] = FileOutcome('failed', reason)
                 continue
 
             file.finalize(src_path)
             results[file] = self._finish_download(file)
+
+        for file in files:
+            if file not in results:
+                reason = download_error.reason if download_error else summary.FAIL_NOT_FOUND
+                failure_logger.error(json.dumps({**file.get_data(), 'reason': reason}))
+                results[file] = FileOutcome('failed', reason)
 
         shutil.rmtree(temp_dir, ignore_errors=True)
         return results
@@ -531,9 +537,8 @@ class Creator:
             logger.debug(f"Found password {file_data['password']} -> {file.path}")
             passwords.append(file_data['password'])
 
-        # file.password was pre-filled from the post text for 'external' files - tried before
-        # ARCHIVE_PASSWORDS, but after kemono's own known-file password above.
-        if file.type == 'external' and file.password and file.password not in passwords:
+        # file.password may be pre-filled from the post text - tried before ARCHIVE_PASSWORDS.
+        if file.password and file.password not in passwords:
             logger.debug(f"Trying password scraped from post text -> {file.path}")
             passwords.append(file.password)
 

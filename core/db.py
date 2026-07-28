@@ -100,17 +100,32 @@ def upsert_post(service: str, id: str, post_id: str, title: str, published: floa
     conn.commit()
 
 def insert_file(file) -> int:
+    """Inserts `file`, or updates the existing row in place if `path` already exists - a
+    re-uploaded attachment can land on the same destination path with new content."""
+
     conn = get_connection()
-    cur = conn.execute("""
+    conn.execute("""
         INSERT INTO files (creator_service, creator_id, post_id, file_index, published, hash, path,
                             name, url, type, password, parent_archive_id)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT (path) DO UPDATE SET
+            creator_service=excluded.creator_service,
+            creator_id=excluded.creator_id,
+            post_id=excluded.post_id,
+            file_index=excluded.file_index,
+            published=excluded.published,
+            hash=excluded.hash,
+            name=excluded.name,
+            url=excluded.url,
+            type=excluded.type,
+            password=excluded.password,
+            parent_archive_id=excluded.parent_archive_id
     """, (
         file.creator_service, file.creator_id, file.post_id, file.index, file.published, file.hash, file.path,
         file.name, file.url, file.type, file.password, file.parent_archive_id
     ))
     conn.commit()
-    return cur.lastrowid
+    return conn.execute("SELECT id FROM files WHERE path=?", (file.path,)).fetchone()['id']
 
 def path_exists_in_db(path: str) -> bool:
     conn = get_connection()

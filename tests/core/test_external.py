@@ -1,11 +1,12 @@
+import io
 import subprocess
 
 import pytest
 
 import core.config
 import core.external as external
-from core.external import find_external_links, ListingError
-from core.summary import QuotaExceededError, UnsupportedLinkError, ExternalDownloadError
+from core.external import find_external_links, find_post_password, ListingError
+from core.summary import QuotaExceededError, UnsupportedLinkError, ExternalDownloadError, DownloadTimeoutError
 
 
 # --- find_external_links() ---
@@ -86,6 +87,18 @@ def test_password_scrape_handles_cjk_labels_with_and_without_colon():
 def test_no_links_returns_empty_list():
     assert find_external_links('<p>just a normal post with no links</p>') == []
     assert find_external_links('') == []
+
+
+# --- find_post_password() ---
+
+def test_find_post_password_scrapes_regardless_of_any_link():
+    content = '<p>For those who missed it.</p><p>pass : raigyocreative</p>'
+    assert find_post_password(content) == 'raigyocreative'
+
+
+def test_find_post_password_returns_none_when_absent():
+    assert find_post_password('<p>just a normal post</p>') is None
+    assert find_post_password('') is None
 
 
 def test_duplicate_link_only_returned_once():
@@ -187,6 +200,13 @@ def test_download_gdrive_file_raises_quota_exceeded_on_any_403_including_anti_ab
 
 # --- Mega ---
 
+def test_parse_mega_size_converts_binary_and_decimal_units():
+    assert external._parse_mega_size('1.5', 'GiB') == 1_610_612_736
+    assert external._parse_mega_size('2', 'MB') == 2_000_000
+    assert external._parse_mega_size(None, None) is None
+    assert external._parse_mega_size('5', '') is None
+
+
 MEGA_FOLDER_LISTING_STDOUT = (
     "1. Ilias Alcyone legends 0.7.10/\n"
     "|--\x1b[0m2. Ilias-0.7.10-mac.zip (1.5 GiB)\n"
@@ -208,9 +228,9 @@ def test_list_mega_folder_parses_real_choose_files_output(monkeypatch):
     entries = external.list_mega_folder('https://mega.nz/folder/yAl0CTbK#1cqkX0-m7UuYWHHbPxHgUw')
 
     assert entries == [
-        {'number': 2, 'name': 'Ilias-0.7.10-mac.zip', 'path': 'Ilias Alcyone legends 0.7.10/Ilias-0.7.10-mac.zip'},
-        {'number': 3, 'name': 'Ilias-0.7.10-pc.zip', 'path': 'Ilias Alcyone legends 0.7.10/Ilias-0.7.10-pc.zip'},
-        {'number': 4, 'name': 'ilias-0.7.10-android.apk', 'path': 'Ilias Alcyone legends 0.7.10/ilias-0.7.10-android.apk'},
+        {'number': 2, 'name': 'Ilias-0.7.10-mac.zip', 'path': 'Ilias Alcyone legends 0.7.10/Ilias-0.7.10-mac.zip', 'size': 1_610_612_736},
+        {'number': 3, 'name': 'Ilias-0.7.10-pc.zip', 'path': 'Ilias Alcyone legends 0.7.10/Ilias-0.7.10-pc.zip', 'size': 1_610_612_736},
+        {'number': 4, 'name': 'ilias-0.7.10-android.apk', 'path': 'Ilias Alcyone legends 0.7.10/ilias-0.7.10-android.apk', 'size': 1_717_986_918},
     ]
 
 
@@ -233,10 +253,31 @@ def test_megatools_not_installed_raises_listing_error(monkeypatch):
         external.list_mega_folder('https://mega.nz/folder/x#y')
 
 
+# download_mega_selection()/download_mega_file() go through _run_megatools_watched(), which uses
+# Popen (not subprocess.run) so it can poll dest_dir's size while the process is still running -
+# see the stall-detection tests further down.
+
+class FakePopen:
+    """A completed (already-exited) megatools process, for the common case of a test that only
+    cares about the final result."""
+
+    def __init__(self, returncode=0, stdout='', stderr=''):
+        self.returncode = returncode
+        self.stdin = io.StringIO()
+        self.stdout = io.StringIO(stdout)
+        self.stderr = io.StringIO(stderr)
+
+    def wait(self, timeout=None):
+        return self.returncode
+
+    def kill(self):
+        pass
+
+
 def test_download_mega_selection_raises_quota_exceeded(monkeypatch, tmp_path):
     monkeypatch.setattr(
-        external.subprocess, "run",
-        lambda *a, **k: subprocess.CompletedProcess(a, 1, stdout='', stderr='ERROR: Transfer quota exceeded'),
+        external.subprocess, "Popen",
+        lambda *a, **k: FakePopen(1, '', 'ERROR: Transfer quota exceeded'),
     )
 
     with pytest.raises(QuotaExceededError):
@@ -244,10 +285,10 @@ def test_download_mega_selection_raises_quota_exceeded(monkeypatch, tmp_path):
 
 
 def test_download_mega_file_returns_new_file_path(monkeypatch, tmp_path):
-    def fake_run(*a, **k):
+    def fake_popen(*a, **k):
         (tmp_path / "downloaded.zip").write_bytes(b"content")
-        return subprocess.CompletedProcess(a, 0, stdout='', stderr='')
-    monkeypatch.setattr(external.subprocess, "run", fake_run)
+        return FakePopen(0, '', '')
+    monkeypatch.setattr(external.subprocess, "Popen", fake_popen)
 
     path = external.download_mega_file('https://mega.nz/file/x#y', str(tmp_path))
 
@@ -255,10 +296,71 @@ def test_download_mega_file_returns_new_file_path(monkeypatch, tmp_path):
 
 
 def test_download_mega_file_raises_when_nothing_appears(monkeypatch, tmp_path):
-    monkeypatch.setattr(
-        external.subprocess, "run",
-        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout='', stderr=''),
-    )
+    monkeypatch.setattr(external.subprocess, "Popen", lambda *a, **k: FakePopen(0, '', ''))
 
     with pytest.raises(ExternalDownloadError, match="no file appeared"):
         external.download_mega_file('https://mega.nz/file/x#y', str(tmp_path))
+
+
+# --- _run_megatools_watched() stall/timeout detection ---
+
+class NeverEndingPopen:
+    """A megatools process that never exits on its own - only proc.kill() stops it, mirroring
+    megatools hanging on Mega's anonymous bandwidth quota instead of erroring out."""
+
+    def __init__(self):
+        self.returncode = None
+        self.stdin = io.StringIO()
+        self.stdout = io.StringIO('')
+        self.stderr = io.StringIO('')
+        self.killed = False
+
+    def wait(self, timeout=None):
+        if not self.killed:
+            raise subprocess.TimeoutExpired(cmd='megatools', timeout=timeout)
+        return 0
+
+    def kill(self):
+        self.killed = True
+
+
+def test_run_megatools_watched_raises_quota_exceeded_when_dest_dir_stalls(monkeypatch, tmp_path):
+    monkeypatch.setattr(external.subprocess, "Popen", lambda *a, **k: NeverEndingPopen())
+
+    with pytest.raises(QuotaExceededError, match="stalled"):
+        external._run_megatools_watched(['dl'], '', str(tmp_path), timeout=999, stall_timeout=0)
+
+
+def test_run_megatools_watched_raises_download_timeout_after_overall_timeout(monkeypatch, tmp_path):
+    monkeypatch.setattr(external.subprocess, "Popen", lambda *a, **k: NeverEndingPopen())
+
+    with pytest.raises(DownloadTimeoutError):
+        external._run_megatools_watched(['dl'], '', str(tmp_path), timeout=0, stall_timeout=999)
+
+
+def test_run_megatools_watched_does_not_stall_when_dest_dir_keeps_growing(monkeypatch, tmp_path):
+    # Growth is checked via dest_dir's total size - simulate progress by writing a byte on each
+    # wait() poll, so the stall clock keeps resetting until the process finally exits.
+    class GrowingPopen:
+        def __init__(self):
+            self.returncode = 0
+            self.stdin = io.StringIO()
+            self.stdout = io.StringIO('')
+            self.stderr = io.StringIO('')
+            self.polls = 0
+
+        def wait(self, timeout=None):
+            self.polls += 1
+            if self.polls < 3:
+                (tmp_path / f"part{self.polls}").write_bytes(b"x")
+                raise subprocess.TimeoutExpired(cmd='megatools', timeout=timeout)
+            return self.returncode
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(external.subprocess, "Popen", lambda *a, **k: GrowingPopen())
+
+    result = external._run_megatools_watched(['dl'], '', str(tmp_path), timeout=999, stall_timeout=5)
+
+    assert result.returncode == 0

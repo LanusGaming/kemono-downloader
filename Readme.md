@@ -130,6 +130,7 @@ logged).
 | `DOWNLOAD_MAX_ATTEMPTS` | `60` | Max attempts per file download before giving up. An HTTP 404 always skips straight to giving up, regardless of this value. |
 | `DOWNLOAD_RETRY_DELAY` | `1` | Seconds to wait between retry attempts (a 502 always waits 5s instead). |
 | `EXTERNAL_DRIVE_DELAY` | `5` | Seconds to wait before each Google Drive download request. Google rate-limits bursty download traffic per-IP; raise this if you're still hitting that limit. |
+| `MEGA_STALL_TIMEOUT` | `300` | Seconds a Mega download can go without writing new bytes before it's aborted. megatools can hang indefinitely on Mega's anonymous bandwidth quota instead of reporting it as an error. |
 
 ### Per-Creator Config (`config/creators/<service>_<id>.conf`)
 Created automatically for each creator the first time it's processed, from
@@ -214,8 +215,9 @@ Filtering happens in two independent layers, both configured [per creator](#per-
 When `AUTO_UNZIP` is enabled, every downloaded `.zip`, `.rar`, or `.7z` file is extracted right
 after download:
 - Passwords are tried in this order: any password kemono's API already associates with that exact
-  file, then this creator's `ARCHIVE_PASSWORDS` list (in order), including the implicit "no
-  password" entry.
+  file, then a password scraped from the post's own text (e.g. `pass: hunter2`, in
+  English/Japanese/Chinese/Korean) if one is found, then this creator's `ARCHIVE_PASSWORDS` list
+  (in order), including the implicit "no password" entry.
 - The first password that works is remembered — if it's not already in `ARCHIVE_PASSWORDS`, it's
   appended and the creator's `.conf` file is rewritten immediately, so later archives for the same
   creator try it first.
@@ -231,48 +233,28 @@ after download:
 > `KEEP_FAILED_ARCHIVES=true` for that creator.
 
 ## External Links (Google Drive & Mega)
-Some creators don't attach their actual files to the post at all — instead they paste a Google
-Drive or Mega share link into the post body, sometimes with a password for the archive inside,
-because their platform can't host the file directly (size limits, disallowed file types, etc).
-Setting `ALLOWED_TYPES` to include `external` for a creator makes this script follow those links
-and download what's behind them, the same as any other file type — with the same hash-based dedup,
-the same `AUTO_UNZIP`/`ARCHIVE_PASSWORDS` extraction pipeline, and the same `ALLOWED_EXTENSIONS`
-filtering (applied to the linked file's own name, once it's known).
+Some creators paste a Google Drive or Mega share link into the post body instead of attaching the
+file directly. Setting `ALLOWED_TYPES` to include `external` for a creator makes this script
+follow those links and download what's behind them, through the same dedup, extraction, and
+`ALLOWED_EXTENSIONS` filtering as any other file type.
 
-- **Unlike `attachment`/`thumbnail`/`embed`, `external` is never implied by an empty
-  `ALLOWED_TYPES`** — it must be added explicitly, since resolving these links costs an extra
-  network call (a Drive API request, or a `megatools` subprocess) per link found, not just per
-  post.
-- **A password, if found, is scraped from the post's own text** near the link (e.g. `pass:
-  hunter2`, in English/Japanese/Chinese/Korean) and tried before the creator's `ARCHIVE_PASSWORDS`
-  list. This is best-effort — most creators don't password-protect these links at all, and if no
-  password is found, extraction just proceeds with none, same as it always does otherwise.
-- **Google Drive** links (both a single file and a whole folder) are resolved via the Drive API v3
-  using `GOOGLE_API_KEY` — a free key, no OAuth or billing needed, since these are all
-  publicly-shared ("anyone with the link") files. Folders are enumerated recursively; native
-  Google Docs/Sheets/etc. entries (not actual files) are skipped.
-- **Mega** links need no credentials — the decryption key lives in the URL itself — but do need
-  the `megatools` binary, bundled in the Docker image. A whole shared folder is listed and
-  downloaded through it directly; only files not already recorded for that creator are selected.
-  Mega's own *link-level* password feature (a `mega.nz/#P!...` URL — distinct from an archive
-  password, and rare) isn't supported by `megatools` and is skipped with a warning.
-- **Drive downloads happen one at a time** (Google's anti-automation block reacted to just 2
-  concurrent, paced downloads in testing), each preceded by `EXTERNAL_DRIVE_DELAY`. **Mega
-  downloads** run through their own small pool, grouped by shared link (a whole folder link
-  downloads in one `megatools` invocation) — both kept separate from the main kemono pool since
-  they're rate-limited per-IP rather than per-file, so more concurrency there just trips the
-  limit faster rather than finishing faster.
-- Google's rate limiting here is an undocumented, opaque anti-abuse system, not a published quota
-  — pacing reduces how often it triggers but can't guarantee avoiding it, especially for a
-  creator with a large backlog of Drive links. A quota rejection (Drive's per-file quota, the
-  broader anti-automation block, or Mega's bandwidth cap) fails that file immediately without
-  retrying within the run and shows up in the run summary as `external_quota_exceeded` - these
-  reset on their own schedule, not by waiting a few seconds.
-- **Once Google's block is hit, every remaining Drive download for the rest of the run is failed
-  immediately** instead of waiting out `EXTERNAL_DRIVE_DELAY` first — the block doesn't clear
-  itself mid-run, so there's no point paying that delay just to fail again. This applies for the
-  rest of the run across every creator, not just the one that triggered it, since the block is
-  per-IP, not per-creator. It's retried fresh on the next run.
+- **Opt-in only** — `external` is never implied by an empty `ALLOWED_TYPES`, since resolving a
+  link costs an extra network call per link found.
+- **Passwords**, if present near the link in the post text, are scraped and tried before
+  `ARCHIVE_PASSWORDS`.
+- **Google Drive** links (file or folder, folders enumerated recursively) are resolved via the
+  Drive API v3 using `GOOGLE_API_KEY` (a free key, no OAuth/billing needed). Downloads run one at
+  a time, paced by `EXTERNAL_DRIVE_DELAY`, since concurrency trips Google's anti-automation block.
+  Once that block is hit, every remaining Drive download for the rest of the run fails immediately
+  instead of waiting out the delay first, and is retried fresh next run.
+- **Mega** links need no credentials but do need the `megatools` binary (bundled in the Docker
+  image). A shared folder downloads through a small worker pool, one `megatools` invocation per
+  link. Mega's own link-level password feature (`mega.nz/#P!...`) isn't supported and is skipped.
+  A transfer stalled for `MEGA_STALL_TIMEOUT` (megatools can hang on Mega's bandwidth quota
+  instead of erroring) is aborted; any files that had already finished downloading are kept
+  rather than discarded along with the rest of the batch.
+- A quota/rate-limit rejection fails that file immediately with no in-run retry, and shows up in
+  the run summary as `external_quota_exceeded` — these reset on their own schedule.
 
 ## Scheduling
 Controlled entirely by `CRON_EXPRESSION` and `RUN_IMMEDIATELY` in

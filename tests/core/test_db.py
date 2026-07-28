@@ -78,6 +78,21 @@ def test_insert_file_and_file_row_to_dict_round_trip_matches_file_constructor(fr
     assert rebuilt.id == file_id
 
 
+def test_insert_file_upserts_on_path_conflict_instead_of_raising(fresh_db):
+    fresh_db.ensure_creator('patreon', '111', 'A', 0.0)
+    fresh_db.upsert_post('patreon', '111', 'p1', 'Post', 0.0)
+    first_id = fresh_db.insert_file(make_file(hash='old-hash'))
+
+    second_id = fresh_db.insert_file(make_file(hash='new-hash'))
+
+    conn = fresh_db.get_connection()
+    rows = conn.execute("SELECT * FROM files WHERE path=?", ('/data/x/p1/000_file.jpg',)).fetchall()
+
+    assert len(rows) == 1
+    assert rows[0]['hash'] == 'new-hash'
+    assert second_id == first_id
+
+
 def test_path_exists_in_db(fresh_db):
     fresh_db.ensure_creator('patreon', '111', 'A', 0.0)
     fresh_db.upsert_post('patreon', '111', 'p1', 'Post', 0.0)

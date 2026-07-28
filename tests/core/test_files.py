@@ -247,6 +247,16 @@ def test_extract_cleans_up_temp_dir_on_failure_and_reraises(tmp_dirs, tmp_path):
     assert leftover_temp_dirs == []
 
 
+def test_extract_returns_empty_list_for_a_zero_entry_zip(tmp_dirs, tmp_path):
+    path = tmp_path / "empty.zip"
+    make_plain_zip(path, {})
+
+    result = extract(str(path), '')
+
+    assert result == []
+    assert os.path.isdir(path.with_suffix(''))
+
+
 def test_extract_removes_stale_destination_directory_first(tmp_dirs, tmp_path):
     path = tmp_path / "archive.zip"
     make_plain_zip(path, {'a.txt': b'fresh'})
