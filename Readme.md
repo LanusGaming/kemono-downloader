@@ -247,8 +247,9 @@ follow those links and download what's behind them, through the same dedup, extr
 - **Google Drive** links (file or folder, folders enumerated recursively) are resolved via the
   Drive API v3 using `GOOGLE_API_KEY` (a free key, no OAuth/billing needed). Downloads run one at
   a time, paced by `EXTERNAL_DRIVE_DELAY`, since concurrency trips Google's anti-automation block.
-  Once that block is hit, every remaining Drive download for the rest of the run fails immediately
-  instead of waiting out the delay first, and is retried fresh next run.
+  Once that block is hit, the rest of that creator's Drive downloads fail immediately instead of
+  waiting out the delay first - except each next creator's first Drive file, which is always
+  attempted for real to probe whether the block has lifted.
 - **Mega** links need no credentials but do need the `megatools` binary (bundled in the Docker
   image). A shared folder downloads through a small worker pool, one `megatools` invocation per
   link. Mega's own link-level password feature (`mega.nz/#P!...`) isn't supported and is skipped.

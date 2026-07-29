@@ -488,7 +488,9 @@ def test_download_all_files_stops_gdrive_after_quota_block_without_calling_downl
     assert external_module.is_gdrive_blocked() is True
 
 
-def test_download_all_files_skips_gdrive_entirely_when_already_blocked_from_a_prior_creator(make_creator, monkeypatch):
+def test_download_all_files_probes_first_gdrive_file_even_when_already_blocked(make_creator, monkeypatch):
+    # Each creator gets one real attempt regardless of a block recorded by an earlier creator -
+    # the block may have lifted since then.
     creator = make_creator()
     external_module.mark_gdrive_blocked()
 
@@ -498,9 +500,30 @@ def test_download_all_files_skips_gdrive_entirely_when_already_blocked_from_a_pr
     gdrive_file = File({'source': 'gdrive', 'ref_id': '1', 'name': 'a.zip', 'type': 'external'})
     results = creator.download_all_files([gdrive_file])
 
-    assert calls == []
-    assert results[gdrive_file].status == 'failed'
-    assert results[gdrive_file].reason == summary.FAIL_EXTERNAL_QUOTA
+    assert calls == [gdrive_file]
+    assert results[gdrive_file].status == 'success'
+    assert external_module.is_gdrive_blocked() is False
+
+
+def test_download_all_files_still_blocked_after_probe_skips_rest_of_this_creators_files(make_creator, monkeypatch):
+    creator = make_creator()
+    external_module.mark_gdrive_blocked()
+
+    calls = []
+    def fake_download_file(self, file):
+        calls.append(file)
+        return FileOutcome('failed', summary.FAIL_EXTERNAL_QUOTA)
+    monkeypatch.setattr(Creator, "download_file", fake_download_file)
+
+    files = [
+        File({'source': 'gdrive', 'ref_id': '1', 'name': 'a.zip', 'type': 'external'}),
+        File({'source': 'gdrive', 'ref_id': '2', 'name': 'b.zip', 'type': 'external'}),
+    ]
+    results = creator.download_all_files(files)
+
+    assert [f.name for f in calls] == ['a.zip']  # the probe was attempted, b.zip was not
+    assert results[files[1]].reason == summary.FAIL_EXTERNAL_QUOTA
+    assert external_module.is_gdrive_blocked() is True
 
 
 # --- download_mega_link() ---

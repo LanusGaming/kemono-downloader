@@ -387,8 +387,10 @@ class Creator:
                             mega_max_workers: int = 2) -> dict[File, FileOutcome]:
         """Downloads kemono files through the main pool, Drive files one at a time (concurrency
         tripped Google's anti-automation block in testing), and Mega files - grouped by shared
-        link - through a small pool. Once Drive comes back quota-blocked, every remaining Drive
-        file for the rest of the run fails immediately (see external.is_gdrive_blocked())."""
+        link - through a small pool. Once Drive comes back quota-blocked, the rest of this
+        creator's Drive files fail immediately without trying - except the first file of every
+        creator, which always attempts a download to probe whether the block has lifted (see
+        external.is_gdrive_blocked())."""
 
         kemono_files = [f for f in files if f.source == 'kemono']
         gdrive_files = [f for f in files if f.source == 'gdrive']
@@ -402,8 +404,8 @@ class Creator:
                 file = futures[fut]
                 results[file] = fut.result()
 
-        for file in gdrive_files:
-            if external.is_gdrive_blocked():
+        for i, file in enumerate(gdrive_files):
+            if i > 0 and external.is_gdrive_blocked():
                 results[file] = FileOutcome('failed', summary.FAIL_EXTERNAL_QUOTA)
                 continue
 
@@ -411,6 +413,9 @@ class Creator:
             if results[file].reason == summary.FAIL_EXTERNAL_QUOTA:
                 logger.warning("Google Drive rate limit hit - skipping remaining Drive downloads for this run")
                 external.mark_gdrive_blocked()
+            elif external.is_gdrive_blocked():
+                logger.info("Google Drive download succeeded - block has lifted, resuming normal downloads")
+                external.mark_gdrive_unblocked()
 
         if mega_files:
             by_link = {}

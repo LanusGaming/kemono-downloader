@@ -124,6 +124,10 @@ def mark_gdrive_blocked() -> None:
     global _gdrive_blocked
     _gdrive_blocked = True
 
+def mark_gdrive_unblocked() -> None:
+    global _gdrive_blocked
+    _gdrive_blocked = False
+
 def list_gdrive(link: dict) -> list[dict]:
     """Returns one dict per downloadable file for a Drive link: {'id', 'name', 'size'}. A file
     link yields a single entry; a folder link recurses into subfolders (native Google Docs/

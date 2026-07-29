@@ -115,6 +115,12 @@ def test_gdrive_blocked_flag_starts_false_and_latches_true():
     assert external.is_gdrive_blocked() is True
 
 
+def test_gdrive_blocked_flag_can_be_cleared():
+    external.mark_gdrive_blocked()
+    external.mark_gdrive_unblocked()
+    assert external.is_gdrive_blocked() is False
+
+
 def test_list_gdrive_requires_api_key(monkeypatch):
     monkeypatch.setattr(core.config, "GOOGLE_API_KEY", '')
     with pytest.raises(ListingError, match="GOOGLE_API_KEY"):
