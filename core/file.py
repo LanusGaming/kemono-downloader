@@ -10,6 +10,18 @@ from .utils import *
 
 logger = logging.getLogger("downloader")
 
+def _get_retry_after(response) -> int | None:
+    """Parses a 429 response's Retry-After header (seconds form only) into an int, or None if
+    absent/unparseable."""
+
+    value = response.headers.get('Retry-After')
+    if value is None:
+        return None
+    try:
+        return max(0, int(value))
+    except ValueError:
+        return None
+
 DEFAULT_FILE = {
     'id': None,
     'creator_id': '',
@@ -83,8 +95,10 @@ class File:
     def _fetch_kemono(self, temp_path: str) -> None:
         """Downloads self.url to temp_path, retrying up to DOWNLOAD_MAX_ATTEMPTS times. A 404
         fails immediately with no retry (the file isn't imported on the mirror yet); a 502
-        always waits 5s regardless of DOWNLOAD_RETRY_DELAY. Raises NotFoundError on a 404, or
-        DownloadTimeoutError once retries are exhausted."""
+        always waits 5s regardless of DOWNLOAD_RETRY_DELAY; a 429 (rate limited) honors the
+        server's Retry-After header, or waits 30s if none is given - both well above
+        DOWNLOAD_RETRY_DELAY, since retrying a rate limit quickly just prolongs it. Raises
+        NotFoundError on a 404, or DownloadTimeoutError once retries are exhausted."""
 
         dest_path = self.get_dest_download_path()
         max_attempts = config.DOWNLOAD_MAX_ATTEMPTS
@@ -116,6 +130,8 @@ class File:
 
                 if isinstance(e, HTTPError) and e.response.status_code == 502:
                     wait_time = 5
+                elif isinstance(e, HTTPError) and e.response.status_code == 429:
+                    wait_time = _get_retry_after(e.response) or 30
 
                 logger.warning(f"Attempt failed ({attempt+1}/{max_attempts}) -> {dest_path}")
                 logger.debug(f"[Exception] {e}")

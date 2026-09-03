@@ -66,6 +66,40 @@ def test_download_502_always_waits_5s_regardless_of_retry_delay(tmp_dirs, reques
     assert sleep_calls == [5]  # not DOWNLOAD_RETRY_DELAY's 1
 
 
+def test_download_429_waits_30s_when_no_retry_after_header(tmp_dirs, requests_mock, monkeypatch):
+    monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 3)
+    monkeypatch.setattr(core.config, "DOWNLOAD_RETRY_DELAY", 1)
+    sleep_calls = []
+    monkeypatch.setattr(core.file.time, "sleep", lambda s: sleep_calls.append(s))
+
+    file = make_file()
+    requests_mock.get(file.url, [
+        {'status_code': 429},
+        {'status_code': 200, 'content': b'file-bytes'},
+    ])
+
+    file.download()
+
+    assert sleep_calls == [30]  # not DOWNLOAD_RETRY_DELAY's 1
+
+
+def test_download_429_honors_retry_after_header(tmp_dirs, requests_mock, monkeypatch):
+    monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 3)
+    monkeypatch.setattr(core.config, "DOWNLOAD_RETRY_DELAY", 1)
+    sleep_calls = []
+    monkeypatch.setattr(core.file.time, "sleep", lambda s: sleep_calls.append(s))
+
+    file = make_file()
+    requests_mock.get(file.url, [
+        {'status_code': 429, 'headers': {'Retry-After': '12'}},
+        {'status_code': 200, 'content': b'file-bytes'},
+    ])
+
+    file.download()
+
+    assert sleep_calls == [12]  # server-provided wait, not the 30s fallback
+
+
 def test_download_generic_error_retries_using_retry_delay_until_exhausted(tmp_dirs, requests_mock, monkeypatch):
     monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 3)
     monkeypatch.setattr(core.config, "DOWNLOAD_RETRY_DELAY", 2)
