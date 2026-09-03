@@ -100,6 +100,25 @@ def test_download_429_honors_retry_after_header(tmp_dirs, requests_mock, monkeyp
     assert sleep_calls == [12]  # server-provided wait, not the 30s fallback
 
 
+def test_download_403_waits_30s_like_429(tmp_dirs, requests_mock, monkeypatch):
+    # The mirror's DDoS-Guard front escalates a rate-limited IP from 429 to 403 - treat it the
+    # same way rather than hammering it at DOWNLOAD_RETRY_DELAY.
+    monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 3)
+    monkeypatch.setattr(core.config, "DOWNLOAD_RETRY_DELAY", 1)
+    sleep_calls = []
+    monkeypatch.setattr(core.file.time, "sleep", lambda s: sleep_calls.append(s))
+
+    file = make_file()
+    requests_mock.get(file.url, [
+        {'status_code': 403},
+        {'status_code': 200, 'content': b'file-bytes'},
+    ])
+
+    file.download()
+
+    assert sleep_calls == [30]  # not DOWNLOAD_RETRY_DELAY's 1
+
+
 def test_download_generic_error_retries_using_retry_delay_until_exhausted(tmp_dirs, requests_mock, monkeypatch):
     monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 3)
     monkeypatch.setattr(core.config, "DOWNLOAD_RETRY_DELAY", 2)
