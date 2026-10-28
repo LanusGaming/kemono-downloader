@@ -118,6 +118,55 @@ def test_download_403_fails_immediately_as_mirror_blocked(tmp_dirs, requests_moc
     assert not os.path.exists(file.get_temp_download_path())
 
 
+def test_download_retry_resumes_partial_temp_file_with_range_request(tmp_dirs, requests_mock, monkeypatch):
+    # The mirror serves some large files slowly enough that connections drop mid-file - a retry
+    # has to continue from what's already on disk rather than start the whole file over.
+    monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 3)
+    monkeypatch.setattr(core.file.time, "sleep", lambda s: None)
+
+    file = make_file()
+    with open(file.get_temp_download_path(), 'wb') as f:
+        f.write(b'first-half-')
+    requests_mock.get(file.url, status_code=206, content=b'second-half')
+
+    file.download()
+
+    assert requests_mock.request_history[0].headers['Range'] == 'bytes=11-'
+    with open(file.get_dest_download_path(), 'rb') as f:
+        assert f.read() == b'first-half-second-half'
+
+
+def test_download_starts_over_when_server_ignores_range(tmp_dirs, requests_mock, monkeypatch):
+    file = make_file()
+    with open(file.get_temp_download_path(), 'wb') as f:
+        f.write(b'stale-partial-')
+    requests_mock.get(file.url, status_code=200, content=b'whole-file')
+
+    file.download()
+
+    with open(file.get_dest_download_path(), 'rb') as f:
+        assert f.read() == b'whole-file'
+
+
+def test_download_416_discards_partial_file_and_retries_from_scratch(tmp_dirs, requests_mock, monkeypatch):
+    monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 3)
+    monkeypatch.setattr(core.file.time, "sleep", lambda s: None)
+
+    file = make_file()
+    with open(file.get_temp_download_path(), 'wb') as f:
+        f.write(b'too-long-partial')
+    requests_mock.get(file.url, [
+        {'status_code': 416},
+        {'status_code': 200, 'content': b'whole-file'},
+    ])
+
+    file.download()
+
+    assert 'Range' not in requests_mock.request_history[1].headers
+    with open(file.get_dest_download_path(), 'rb') as f:
+        assert f.read() == b'whole-file'
+
+
 def test_download_generic_error_retries_using_retry_delay_until_exhausted(tmp_dirs, requests_mock, monkeypatch):
     monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 3)
     monkeypatch.setattr(core.config, "DOWNLOAD_RETRY_DELAY", 2)

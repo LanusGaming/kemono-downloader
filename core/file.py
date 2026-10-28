@@ -94,8 +94,11 @@ class File:
 
     def _fetch_kemono(self, temp_path: str) -> None:
         """Downloads self.url to temp_path, retrying up to DOWNLOAD_MAX_ATTEMPTS times. Every
-        attempt waits for a request slot first (see network.wait_for_request_slot()). A 404
-        fails immediately with no retry (the file isn't imported on the mirror yet); a 403 too
+        attempt waits for a request slot first (see network.wait_for_request_slot()), and a retry
+        resumes from what's already in temp_path with a Range request instead of starting over -
+        the mirror serves some large files slowly enough that a connection drop mid-file is
+        likely, and restarting from zero each time may never finish. A 404 fails immediately
+        with no retry (the file isn't imported on the mirror yet); a 403 too
         (the mirror's DDoS-Guard front blocking this IP as a bot - retrying through it, even
         slowly, only escalates the block); a 502 always waits 5s regardless of
         DOWNLOAD_RETRY_DELAY; a 429 (rate limited) honors the server's Retry-After header, or
@@ -109,11 +112,20 @@ class File:
         logger.debug(f"Download starting... -> {dest_path}")
         for attempt in range(max_attempts):
             try:
+                headers = get_headers()
+                resume_from = os.path.getsize(temp_path) if os.path.exists(temp_path) else 0
+                if resume_from:
+                    headers['Range'] = f"bytes={resume_from}-"
+                    logger.debug(f"Resuming from byte {resume_from}... -> {dest_path}")
+
                 wait_for_request_slot()
-                r = SESSION.get(self.url, headers=get_headers(), stream=True, timeout=3600)
+                r = SESSION.get(self.url, headers=headers, stream=True, timeout=3600)
                 r.raise_for_status()
 
-                with open(temp_path, 'wb') as f:
+                # A 206 carries only the rest of the file; a 200 means the server ignored the
+                # Range and is sending all of it again, so start over
+                mode = 'ab' if resume_from and r.status_code == 206 else 'wb'
+                with open(temp_path, mode) as f:
                     for chunk in r.iter_content(8192):
                         if chunk:
                             f.write(chunk)
@@ -135,6 +147,10 @@ class File:
                     if os.path.exists(temp_path):
                         os.remove(temp_path)
                     raise MirrorBlockedError(f"403 -> {dest_path}") from e
+
+                if isinstance(e, HTTPError) and e.response.status_code == 416:
+                    # the partial temp file doesn't fit the remote file - start over
+                    os.remove(temp_path)
 
                 wait_time = config.DOWNLOAD_RETRY_DELAY
 
