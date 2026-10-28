@@ -127,10 +127,11 @@ logged).
 | `RUN_IMMEDIATELY` | `false` | Also run once at startup, in addition to the cron schedule. Has no effect if `CRON_EXPRESSION` is empty. |
 | `TRIGGER_ALBUM_CREATOR` | `false` | POST a webhook after each run finishes. See [Album-Creator Integration](#album-creator-integration). |
 | `ALBUM_CREATOR_WEBHOOK_URL` | `http://album-creator:8080/run` | Webhook URL used when `TRIGGER_ALBUM_CREATOR` is enabled. |
-| `DOWNLOAD_MAX_ATTEMPTS` | `60` | Max attempts per file download before giving up. An HTTP 404 always skips straight to giving up, regardless of this value. |
+| `DOWNLOAD_MAX_ATTEMPTS` | `60` | Max attempts per file download before giving up. An HTTP 404 or 403 always skips straight to giving up, regardless of this value. |
 | `DOWNLOAD_RETRY_DELAY` | `1` | Seconds to wait between retry attempts (a 502 always waits 5s instead). |
 | `EXTERNAL_DRIVE_DELAY` | `5` | Seconds to wait before each Google Drive download request. Google rate-limits bursty download traffic per-IP; raise this if you're still hitting that limit. |
 | `MEGA_STALL_TIMEOUT` | `300` | Seconds a Mega download can go without writing new bytes before it's aborted. megatools can hang indefinitely on Mega's anonymous bandwidth quota instead of reporting it as an error. |
+| `USER_AGENT_CONTACT` | *(empty)* | An email or URL appended to the User-Agent (`kemono-downloader (+<contact>)`), so a mirror operator can reach you instead of blocking you. See [Domains & Mirrors](#domains--mirrors). |
 
 ### Per-Creator Config (`config/creators/<service>_<id>.conf`)
 Created automatically for each creator the first time it's processed, from
@@ -276,6 +277,14 @@ running are picked up at the next restart.
 `DOMAIN` defaults to `kemono.cr` but can point at any kemono-schema-compatible mirror. If a mirror
 serves downloadable files from a different host or path than its API/site, set `FILE_DOMAIN`
 and/or `FILE_PATH_PREFIX` to match.
+
+Requests are paced to stay within what mirrors like pawchive.pw ask for: request starts are kept
+at least 1s apart across all download threads, at most 5 files download at once, and the
+User-Agent honestly identifies this tool (with `USER_AGENT_CONTACT`, if set) rather than
+pretending to be a browser, which gets clients blocked. If the file host still answers with a
+403 - its DDoS-Guard bot block - that file fails as `mirror_blocked` without retrying, and the
+rest of that creator's downloads are skipped; each next creator's first file is attempted for real
+to probe whether the block has lifted. Skipped files are simply picked up again on the next run.
 
 `reconcile` (see below) also accepts `--domain`, `--file-domain`, and `--file-path-prefix` flags to
 override these for a single run — handy for reconciling a library against a different mirror than

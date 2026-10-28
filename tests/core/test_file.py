@@ -7,7 +7,7 @@ import core.config
 import core.file
 import core.external
 from core.file import DEFAULT_FILE, File
-from core.summary import NotFoundError, DownloadTimeoutError, QuotaExceededError
+from core.summary import NotFoundError, DownloadTimeoutError, QuotaExceededError, MirrorBlockedError
 
 
 def make_file(**overrides) -> File:
@@ -100,23 +100,22 @@ def test_download_429_honors_retry_after_header(tmp_dirs, requests_mock, monkeyp
     assert sleep_calls == [12]  # server-provided wait, not the 30s fallback
 
 
-def test_download_403_waits_30s_like_429(tmp_dirs, requests_mock, monkeypatch):
-    # The mirror's DDoS-Guard front escalates a rate-limited IP from 429 to 403 - treat it the
-    # same way rather than hammering it at DOWNLOAD_RETRY_DELAY.
-    monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 3)
-    monkeypatch.setattr(core.config, "DOWNLOAD_RETRY_DELAY", 1)
+def test_download_403_fails_immediately_as_mirror_blocked(tmp_dirs, requests_mock, monkeypatch):
+    # The mirror's DDoS-Guard front answers 403 once it has flagged this IP as a bot - retrying
+    # through it, even with a 30s backoff, only kept the block going.
+    monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 20)
     sleep_calls = []
     monkeypatch.setattr(core.file.time, "sleep", lambda s: sleep_calls.append(s))
 
     file = make_file()
-    requests_mock.get(file.url, [
-        {'status_code': 403},
-        {'status_code': 200, 'content': b'file-bytes'},
-    ])
+    requests_mock.get(file.url, status_code=403, text="Are you a bot or using download tools?")
 
-    file.download()
+    with pytest.raises(MirrorBlockedError):
+        file.download()
 
-    assert sleep_calls == [30]  # not DOWNLOAD_RETRY_DELAY's 1
+    assert requests_mock.call_count == 1
+    assert sleep_calls == []
+    assert not os.path.exists(file.get_temp_download_path())
 
 
 def test_download_generic_error_retries_using_retry_delay_until_exhausted(tmp_dirs, requests_mock, monkeypatch):

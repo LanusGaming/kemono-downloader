@@ -6,6 +6,7 @@ import pytest
 
 import core.creator as creator_module
 import core.external as external_module
+import core.network as network_module
 import core.summary as summary
 from core.creator import Creator
 from core.file import File
@@ -524,6 +525,64 @@ def test_download_all_files_still_blocked_after_probe_skips_rest_of_this_creator
     assert [f.name for f in calls] == ['a.zip']  # the probe was attempted, b.zip was not
     assert results[files[1]].reason == summary.FAIL_EXTERNAL_QUOTA
     assert external_module.is_gdrive_blocked() is True
+
+
+
+def test_download_all_files_stops_kemono_after_mirror_block_without_calling_download_file(make_creator, monkeypatch):
+    creator = make_creator()
+
+    calls = []
+    def fake_download_file(self, file):
+        calls.append(file)
+        return FileOutcome('failed', summary.FAIL_MIRROR_BLOCKED)
+    monkeypatch.setattr(Creator, "download_file", fake_download_file)
+
+    files = [File({'source': 'kemono', 'url': f'https://kemono.cr/{i}', 'name': f'{i}.jpg', 'type': 'attachment'})
+             for i in range(3)]
+    results = creator.download_all_files(files, max_workers=1)
+
+    assert calls == [files[0]]  # the pool's queued files never sent a request
+    assert all(outcome.reason == summary.FAIL_MIRROR_BLOCKED for outcome in results.values())
+    assert set(results.keys()) == set(files)
+    assert network_module.is_mirror_blocked() is True
+
+
+def test_download_all_files_probes_first_kemono_file_even_when_mirror_blocked(make_creator, monkeypatch):
+    # Each creator gets one real attempt regardless of a block recorded by an earlier creator -
+    # the block may have lifted since then.
+    creator = make_creator()
+    network_module.mark_mirror_blocked()
+
+    calls = []
+    monkeypatch.setattr(Creator, "download_file", lambda self, file: calls.append(file) or FileOutcome('success'))
+
+    files = [File({'source': 'kemono', 'url': f'https://kemono.cr/{i}', 'name': f'{i}.jpg', 'type': 'attachment'})
+             for i in range(3)]
+    results = creator.download_all_files(files)
+
+    assert calls[0] == files[0]  # probed on its own before the pool started
+    assert set(calls) == set(files)
+    assert all(outcome.status == 'success' for outcome in results.values())
+    assert network_module.is_mirror_blocked() is False
+
+
+def test_download_all_files_still_mirror_blocked_after_probe_skips_rest_of_this_creators_files(make_creator, monkeypatch):
+    creator = make_creator()
+    network_module.mark_mirror_blocked()
+
+    calls = []
+    def fake_download_file(self, file):
+        calls.append(file)
+        return FileOutcome('failed', summary.FAIL_MIRROR_BLOCKED)
+    monkeypatch.setattr(Creator, "download_file", fake_download_file)
+
+    files = [File({'source': 'kemono', 'url': f'https://kemono.cr/{i}', 'name': f'{i}.jpg', 'type': 'attachment'})
+             for i in range(2)]
+    results = creator.download_all_files(files)
+
+    assert calls == [files[0]]  # the probe was attempted, the second file was not
+    assert results[files[1]].reason == summary.FAIL_MIRROR_BLOCKED
+    assert network_module.is_mirror_blocked() is True
 
 
 # --- download_mega_link() ---

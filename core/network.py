@@ -1,11 +1,53 @@
-import requests, gzip, logging, time
-from fake_useragent import UserAgent
+import requests, gzip, logging, threading, time
 from . import config
 
 logger = logging.getLogger("downloader")
 
-ua = UserAgent()
-user_agent = ua.chrome
+# Minimum seconds between the start of any two requests to the kemono domains, across all download
+# threads - pawchive.pw blocks clients going over 1 request per second.
+MIN_REQUEST_INTERVAL = 1.0
+
+_request_lock = threading.Lock()
+_next_request_at = 0.0
+
+def wait_for_request_slot() -> None:
+    """Blocks until this thread may start a request, keeping request starts MIN_REQUEST_INTERVAL
+    apart. Each caller reserves the next free slot under the lock and sleeps outside it, so
+    concurrent threads queue up behind each other instead of all firing at once."""
+
+    global _next_request_at
+
+    with _request_lock:
+        now = time.monotonic()
+        wait = _next_request_at - now
+        _next_request_at = max(now, _next_request_at) + MIN_REQUEST_INTERVAL
+
+    if wait > 0:
+        time.sleep(wait)
+
+# Set once the file host answers a download with 403 (its DDoS-Guard block page), so the rest of
+# the creator's downloads fail immediately instead of feeding the block. Process-global like
+# external._gdrive_blocked, for the same reason - each run is a fresh subprocess.
+_mirror_blocked = False
+
+def is_mirror_blocked() -> bool:
+    return _mirror_blocked
+
+def mark_mirror_blocked() -> None:
+    global _mirror_blocked
+    _mirror_blocked = True
+
+def mark_mirror_unblocked() -> None:
+    global _mirror_blocked
+    _mirror_blocked = False
+
+def get_user_agent() -> str:
+    """Identifies this tool honestly - the mirror blocks clients pretending to be a browser - with
+    USER_AGENT_CONTACT appended when set, so the operator can reach out instead of blocking."""
+
+    if config.USER_AGENT_CONTACT:
+        return f"kemono-downloader (+{config.USER_AGENT_CONTACT})"
+    return "kemono-downloader"
 
 def get_domain_config() -> dict:
     """Builds the domain, API, and file URLs from the current DOMAIN/FILE_DOMAIN/
@@ -23,7 +65,7 @@ def get_domain_config() -> dict:
 
 def get_headers() -> dict:
     return {
-        'User-Agent': user_agent,
+        'User-Agent': get_user_agent(),
         'Accept': 'text/css',
         'Accept-Language': 'en-US,en;q=0.9',
         'Connection': 'keep-alive',
@@ -50,6 +92,7 @@ def call_api(api_call: str, timeout: int = 15, max_attempts: int = 7, additional
     for attempt in range(max_attempts):
         try:
             logger.debug(f"# API #\nCalling kemono API at {url} with headers {safe_headers} and timeout {timeout}s")
+            wait_for_request_slot()
             response = SESSION.get(url, headers=headers, timeout=timeout)
             response.raise_for_status()
 
@@ -100,6 +143,7 @@ def call_api_action(api_call: str, method: str = 'POST', timeout: int = 15, max_
     for attempt in range(max_attempts):
         try:
             logger.debug(f"# API #\n{method} {url} with headers {safe_headers} and timeout {timeout}s")
+            wait_for_request_slot()
             response = SESSION.request(method, url, headers=headers, timeout=timeout)
             response.raise_for_status()
             logger.debug(f"# API #\n{method} succeeded at {url} ({response.status_code})")

@@ -12,6 +12,7 @@ from . import config as app_config
 from . import conf
 from . import db
 from . import external
+from . import network
 from . import summary
 from .summary import (
     DownloadError, ArchivePasswordMissingError, ArchivePasswordIncorrectError, ExtractionError,
@@ -387,9 +388,10 @@ class Creator:
                             mega_max_workers: int = 2) -> dict[File, FileOutcome]:
         """Downloads kemono files through the main pool, Drive files one at a time (concurrency
         tripped Google's anti-automation block in testing), and Mega files - grouped by shared
-        link - through a small pool. Once Drive comes back quota-blocked, the rest of this
-        creator's Drive files fail immediately without trying - except the first file of every
-        creator, which always attempts a download to probe whether the block has lifted (see
+        link - through a small pool. Once the mirror or Drive comes back blocked, the rest of
+        this creator's files from that source fail immediately without trying - except the first
+        file of every creator, which always attempts a download (on its own, before the pool
+        starts) to probe whether the block has lifted (see network.is_mirror_blocked() and
         external.is_gdrive_blocked())."""
 
         kemono_files = [f for f in files if f.source == 'kemono']
@@ -397,8 +399,17 @@ class Creator:
         mega_files = [f for f in files if f.source == 'mega']
 
         results = {}
+        if kemono_files and network.is_mirror_blocked():
+            probe, kemono_files = kemono_files[0], kemono_files[1:]
+            results[probe] = self.download_file(probe)
+            if results[probe].reason != summary.FAIL_MIRROR_BLOCKED:
+                logger.info("Mirror download succeeded - block has lifted, resuming normal downloads")
+                network.mark_mirror_unblocked()
+            elif kemono_files:
+                logger.warning("Still blocked by the mirror - skipping remaining downloads for this creator")
+
         with ThreadPoolExecutor(max_workers=max_workers) as exe:
-            futures = {exe.submit(self.download_file, file): file for file in kemono_files}
+            futures = {exe.submit(self._download_kemono_file, file): file for file in kemono_files}
 
             for fut in as_completed(futures):
                 file = futures[fut]
@@ -429,6 +440,20 @@ class Creator:
                     results.update(fut.result())
 
         return results
+
+    def _download_kemono_file(self, file: File) -> FileOutcome:
+        """download_file() for the kemono pool, failing straight away once the mirror is blocked
+        - files still queued in the pool when the block hits never send a request. Marks the
+        block from the worker itself, before it picks up its next file."""
+
+        if network.is_mirror_blocked():
+            return FileOutcome('failed', summary.FAIL_MIRROR_BLOCKED)
+
+        outcome = self.download_file(file)
+        if outcome.reason == summary.FAIL_MIRROR_BLOCKED and not network.is_mirror_blocked():
+            logger.warning("Blocked by the mirror - skipping remaining downloads for this creator")
+            network.mark_mirror_blocked()
+        return outcome
 
     def download_file(self, file: File) -> FileOutcome:
         """Downloads and records one file, auto-extracting it if it's an archive. On extraction

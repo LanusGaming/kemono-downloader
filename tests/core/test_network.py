@@ -4,7 +4,8 @@ import pytest
 from requests_mock import ANY as ANY_URL
 
 import core.config
-from core.network import call_api, call_api_action, get_domain_config
+import core.network
+from core.network import call_api, call_api_action, get_domain_config, get_headers, wait_for_request_slot
 
 
 @pytest.fixture(autouse=True)
@@ -34,6 +35,40 @@ def test_get_domain_config_file_domain_overrides_when_set(monkeypatch):
 
     assert result['file_base_url'] == "https://files.example.test/prefix"
 
+
+
+def test_user_agent_identifies_the_tool_without_contact(monkeypatch):
+    monkeypatch.setattr(core.config, "USER_AGENT_CONTACT", "")
+
+    assert get_headers()['User-Agent'] == "kemono-downloader"
+
+
+def test_user_agent_includes_contact_when_set(monkeypatch):
+    monkeypatch.setattr(core.config, "USER_AGENT_CONTACT", "me@example.test")
+
+    assert get_headers()['User-Agent'] == "kemono-downloader (+me@example.test)"
+
+
+def test_wait_for_request_slot_spaces_back_to_back_requests(monkeypatch, no_real_sleep):
+    monkeypatch.setattr(core.network, "MIN_REQUEST_INTERVAL", 1.0)
+    monkeypatch.setattr(core.network.time, "monotonic", lambda: 100.0)
+
+    for _ in range(3):
+        wait_for_request_slot()
+
+    assert no_real_sleep == [1.0, 2.0]  # the first request goes straight away
+
+
+def test_wait_for_request_slot_does_not_wait_after_a_quiet_gap(monkeypatch, no_real_sleep):
+    monkeypatch.setattr(core.network, "MIN_REQUEST_INTERVAL", 1.0)
+    now = [100.0]
+    monkeypatch.setattr(core.network.time, "monotonic", lambda: now[0])
+
+    wait_for_request_slot()
+    now[0] = 105.0
+    wait_for_request_slot()
+
+    assert no_real_sleep == []
 
 def test_call_api_404_returns_none_with_no_retry(requests_mock, no_real_sleep):
     requests_mock.get(ANY_URL, status_code=404)

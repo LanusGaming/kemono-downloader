@@ -19,6 +19,7 @@ import core.config
 import core.db
 import core.external
 import core.file
+import core.network
 import core.files
 import core.management.reconcile
 
@@ -29,6 +30,17 @@ def reset_gdrive_blocked(monkeypatch):
     reset it for every test so one test marking Drive blocked can't leak into the next."""
 
     monkeypatch.setattr(core.external, "_gdrive_blocked", False)
+
+
+@pytest.fixture(autouse=True)
+def reset_network_state(monkeypatch):
+    """Same as reset_gdrive_blocked, for core.network's process-global mirror block flag and
+    request pacing - pacing is switched off, so tests asserting on sleep() calls only see their
+    own waits rather than the 1s gaps between request starts."""
+
+    monkeypatch.setattr(core.network, "_mirror_blocked", False)
+    monkeypatch.setattr(core.network, "_next_request_at", 0.0)
+    monkeypatch.setattr(core.network, "MIN_REQUEST_INTERVAL", 0)
 
 
 @pytest.fixture

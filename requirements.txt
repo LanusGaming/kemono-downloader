@@ -1,5 +1,4 @@
 requests~=2.34
-fake-useragent~=2.2
 beautifulsoup4~=4.15
 cython~=3.2
 rarfile~=4.2

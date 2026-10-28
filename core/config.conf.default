@@ -31,8 +31,8 @@ TRIGGER_ALBUM_CREATOR=false
 # Webhook URL to call when TRIGGER_ALBUM_CREATOR is enabled
 ALBUM_CREATOR_WEBHOOK_URL=http://album-creator:8080/run
 
-# Max attempts per file download before giving up (a 503 response always skips straight to
-# giving up, regardless of this value - see core/file.py)
+# Max attempts per file download before giving up (a 404 or 403 response always skips straight
+# to giving up, regardless of this value - see core/file.py)
 DOWNLOAD_MAX_ATTEMPTS=20
 
 # Seconds to wait between download retry attempts
@@ -47,3 +47,9 @@ EXTERNAL_DRIVE_DELAY=5
 # aborted. megatools can hang indefinitely on Mega's anonymous bandwidth quota - using no
 # bandwidth and printing nothing - instead of reporting it as an error.
 MEGA_STALL_TIMEOUT=300
+
+# Contact info sent in the User-Agent header (an email or URL), so mirror operators can reach you
+# instead of blocking you - pawchive.pw asks for "an identifiable user agent, preferably with a
+# way to contact you" and blocks clients pretending to be a browser. Leave empty to send just the
+# project name.
+USER_AGENT_CONTACT=

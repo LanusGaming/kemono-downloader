@@ -15,6 +15,7 @@ FAIL_EXTRACTION_ERROR = 'extraction_error'
 FAIL_EXTERNAL_UNSUPPORTED = 'external_link_unsupported'
 FAIL_EXTERNAL_QUOTA = 'external_quota_exceeded'
 FAIL_EXTERNAL_DOWNLOAD = 'external_download_error'
+FAIL_MIRROR_BLOCKED = 'mirror_blocked'
 
 class DownloadError(Exception):
     """Base for classified download/extraction failures - never raised directly. `reason` is one
@@ -46,6 +47,11 @@ class QuotaExceededError(DownloadError):
 
 class ExternalDownloadError(DownloadError):
     reason = FAIL_EXTERNAL_DOWNLOAD
+
+class MirrorBlockedError(DownloadError):
+    """A 403 from the file host - the mirror's DDoS-Guard front blocking this IP as a bot. Not
+    retried within the file - retrying through the block is what escalates it."""
+    reason = FAIL_MIRROR_BLOCKED
 
 @dataclass
 class FileOutcome:

@@ -2,10 +2,10 @@ import os, logging, shutil, time
 from requests import HTTPError
 
 from .files import generate_hash
-from .network import SESSION, get_headers
+from .network import SESSION, get_headers, wait_for_request_slot
 from . import config
 from .config import DATA_DIR, TEMP_DIR
-from .summary import NotFoundError, DownloadTimeoutError, QuotaExceededError
+from .summary import NotFoundError, DownloadTimeoutError, QuotaExceededError, MirrorBlockedError
 from .utils import *
 
 logger = logging.getLogger("downloader")
@@ -93,13 +93,15 @@ class File:
         self.finalize(temp_path)
 
     def _fetch_kemono(self, temp_path: str) -> None:
-        """Downloads self.url to temp_path, retrying up to DOWNLOAD_MAX_ATTEMPTS times. A 404
-        fails immediately with no retry (the file isn't imported on the mirror yet); a 502
-        always waits 5s regardless of DOWNLOAD_RETRY_DELAY; a 429 or 403 (rate limited - the
-        mirror's DDoS-Guard front escalates from 429 to 403 for IPs that keep retrying through
-        it) honors the server's Retry-After header, or waits 30s if none is given - both well
-        above DOWNLOAD_RETRY_DELAY, since retrying a rate limit quickly just prolongs it. Raises
-        NotFoundError on a 404, or DownloadTimeoutError once retries are exhausted."""
+        """Downloads self.url to temp_path, retrying up to DOWNLOAD_MAX_ATTEMPTS times. Every
+        attempt waits for a request slot first (see network.wait_for_request_slot()). A 404
+        fails immediately with no retry (the file isn't imported on the mirror yet); a 403 too
+        (the mirror's DDoS-Guard front blocking this IP as a bot - retrying through it, even
+        slowly, only escalates the block); a 502 always waits 5s regardless of
+        DOWNLOAD_RETRY_DELAY; a 429 (rate limited) honors the server's Retry-After header, or
+        waits 30s if none is given, since retrying a rate limit quickly just prolongs it. Raises
+        NotFoundError on a 404, MirrorBlockedError on a 403, or DownloadTimeoutError once
+        retries are exhausted."""
 
         dest_path = self.get_dest_download_path()
         max_attempts = config.DOWNLOAD_MAX_ATTEMPTS
@@ -107,6 +109,7 @@ class File:
         logger.debug(f"Download starting... -> {dest_path}")
         for attempt in range(max_attempts):
             try:
+                wait_for_request_slot()
                 r = SESSION.get(self.url, headers=get_headers(), stream=True, timeout=3600)
                 r.raise_for_status()
 
@@ -127,15 +130,20 @@ class File:
                         os.remove(temp_path)
                     raise NotFoundError(f"404 -> {dest_path}") from e
 
+                if isinstance(e, HTTPError) and e.response.status_code == 403:
+                    logger.warning(f"Skipping retries (403, blocked by the mirror) -> {dest_path}")
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    raise MirrorBlockedError(f"403 -> {dest_path}") from e
+
                 wait_time = config.DOWNLOAD_RETRY_DELAY
 
                 if isinstance(e, HTTPError) and e.response.status_code == 502:
                     wait_time = 5
-                elif isinstance(e, HTTPError) and e.response.status_code in (429, 403):
+                elif isinstance(e, HTTPError) and e.response.status_code == 429:
                     wait_time = _get_retry_after(e.response) or 30
 
-                logger.warning(f"Attempt failed ({attempt+1}/{max_attempts}) -> {dest_path}")
-                logger.debug(f"[Exception] {e}")
+                logger.warning(f"Attempt failed ({attempt+1}/{max_attempts}) -> {dest_path} ({e})")
 
                 if attempt < max_attempts-1:
                     logger.debug(f"Starting again in {wait_time}s... -> {dest_path}")
@@ -170,8 +178,7 @@ class File:
                 raise
 
             except Exception as e:
-                logger.warning(f"Attempt failed ({attempt+1}/{max_attempts}) -> {dest_path}")
-                logger.debug(f"[Exception] {e}")
+                logger.warning(f"Attempt failed ({attempt+1}/{max_attempts}) -> {dest_path} ({e})")
 
                 if attempt < max_attempts-1:
                     time.sleep(config.DOWNLOAD_RETRY_DELAY)
