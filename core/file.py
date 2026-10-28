@@ -97,7 +97,8 @@ class File:
         attempt waits for a request slot first (see network.wait_for_request_slot()), and a retry
         resumes from what's already in temp_path with a Range request instead of starting over -
         the mirror serves some large files slowly enough that a connection drop mid-file is
-        likely, and restarting from zero each time may never finish. A 404 fails immediately
+        likely, and restarting from zero each time may never finish. Only attempts that make no
+        progress count towards DOWNLOAD_MAX_ATTEMPTS. A 404 fails immediately
         with no retry (the file isn't imported on the mirror yet); a 403 too
         (the mirror's DDoS-Guard front blocking this IP as a bot - retrying through it, even
         slowly, only escalates the block); a 502 always waits 5s regardless of
@@ -110,10 +111,11 @@ class File:
         max_attempts = config.DOWNLOAD_MAX_ATTEMPTS
 
         logger.debug(f"Download starting... -> {dest_path}")
-        for attempt in range(max_attempts):
+        failed_attempts = 0
+        while True:
+            resume_from = os.path.getsize(temp_path) if os.path.exists(temp_path) else 0
             try:
                 headers = get_headers()
-                resume_from = os.path.getsize(temp_path) if os.path.exists(temp_path) else 0
                 if resume_from:
                     headers['Range'] = f"bytes={resume_from}-"
                     logger.debug(f"Resuming from byte {resume_from}... -> {dest_path}")
@@ -162,9 +164,18 @@ class File:
                 elif isinstance(e, HTTPError) and e.response.status_code == 429:
                     wait_time = _get_retry_after(e.response) or 30
 
-                logger.warning(f"Attempt failed ({attempt+1}/{max_attempts}) -> {dest_path} ({e})")
+                # An attempt that got the file further doesn't count against DOWNLOAD_MAX_ATTEMPTS
+                # - the mirror can drop a large file's connection every few MB, which would burn
+                # through the attempts while the file is still steadily completing
+                if os.path.exists(temp_path) and os.path.getsize(temp_path) > resume_from:
+                    logger.warning(f"Download interrupted at byte {os.path.getsize(temp_path)}, resuming -> {dest_path} ({e})")
+                    time.sleep(wait_time)
+                    continue
 
-                if attempt < max_attempts-1:
+                failed_attempts += 1
+                logger.warning(f"Attempt failed ({failed_attempts}/{max_attempts}) -> {dest_path} ({e})")
+
+                if failed_attempts < max_attempts:
                     logger.debug(f"Starting again in {wait_time}s... -> {dest_path}")
                     time.sleep(wait_time)
                 else:

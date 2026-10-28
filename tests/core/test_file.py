@@ -136,6 +136,37 @@ def test_download_retry_resumes_partial_temp_file_with_range_request(tmp_dirs, r
         assert f.read() == b'first-half-second-half'
 
 
+def test_download_interruptions_that_make_progress_do_not_use_up_attempts(tmp_dirs, monkeypatch):
+    # The mirror dropped a 219 MB file's connection every few MB - with each drop counted as a
+    # failed attempt, the file would run out of attempts while still steadily completing.
+    monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 2)
+    monkeypatch.setattr(core.file.time, "sleep", lambda s: None)
+
+    class PartialResponse:
+        status_code = 206
+
+        def __init__(self, chunk, then_break):
+            self.chunk, self.then_break = chunk, then_break
+
+        def raise_for_status(self):
+            pass
+
+        def iter_content(self, chunk_size):
+            yield self.chunk
+            if self.then_break:
+                raise RequestsConnectionError("Connection broken")
+
+    responses = iter([PartialResponse(b'aa', True), PartialResponse(b'bb', True),
+                      PartialResponse(b'cc', True), PartialResponse(b'dd', False)])
+    monkeypatch.setattr(core.file.SESSION, "get", lambda *args, **kwargs: next(responses))
+
+    file = make_file()
+    file.download()
+
+    with open(file.get_dest_download_path(), 'rb') as f:
+        assert f.read() == b'aabbccdd'
+
+
 def test_download_starts_over_when_server_ignores_range(tmp_dirs, requests_mock, monkeypatch):
     file = make_file()
     with open(file.get_temp_download_path(), 'wb') as f:
