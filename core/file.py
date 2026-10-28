@@ -119,7 +119,10 @@ class File:
                     logger.debug(f"Resuming from byte {resume_from}... -> {dest_path}")
 
                 wait_for_request_slot()
-                r = SESSION.get(self.url, headers=headers, stream=True, timeout=3600)
+                # (connect, read) - the read timeout is per socket read, not for the whole file:
+                # the mirror sometimes leaves a connection open but stops sending, and it's
+                # quicker to resume on a fresh one than to wait that out
+                r = SESSION.get(self.url, headers=headers, stream=True, timeout=(30, 60))
                 r.raise_for_status()
 
                 # A 206 carries only the rest of the file; a 200 means the server ignored the
