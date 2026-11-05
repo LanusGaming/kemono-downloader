@@ -142,7 +142,7 @@ behavior independently per creator.
 |---|---|---|
 | `INCLUDE_REGEX` | *(empty)* | Only download posts whose **title** fully matches this regex. Mutually exclusive with `EXCLUDE_REGEX` — if both are set, `EXCLUDE_REGEX` is ignored (a warning is logged). |
 | `EXCLUDE_REGEX` | *(empty)* | Skip posts whose title fully matches this regex. Ignored if `INCLUDE_REGEX` is set. |
-| `ALLOWED_EXTENSIONS` | `.jpg,.jpeg,.png,.zip,.mp4,.gif,.pdf,.7z,.mp3,.wav,.rar,.mov,.docx,.jpe,.webp` | Comma-separated list of file extensions to download. Empty allows any extension. |
+| `ALLOWED_EXTENSIONS` | `.jpg,.jpeg,.png,.zip,.mp4,.gif,.pdf,.7z,.mp3,.wav,.rar,.mov,.docx,.jpe,.webp,.webm,.avi` | Comma-separated list of file extensions to download. Empty allows any extension. |
 | `ALLOWED_TYPES` | `attachment` | Comma-separated subset of `attachment`, `thumbnail`, `embed`, `external`. Empty allows `attachment`/`thumbnail`/`embed` (not `external` — see below). `embed` (images referenced in the post body) and `external` both cost one extra API call per post to fetch the full content, where the mirror doesn't already send it. |
 | `AUTO_UNZIP` | `true` | Automatically extract downloaded `.zip`/`.rar`/`.7z` archives. |
 | `KEEP_UNPACKED_ARCHIVES` | `true` | Keep the archive file on disk after successful extraction. |

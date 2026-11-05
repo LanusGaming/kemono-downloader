@@ -5,7 +5,7 @@ INCLUDE_REGEX=
 EXCLUDE_REGEX=
 
 # Comma-separated file extensions to download - leave empty to allow any extension
-ALLOWED_EXTENSIONS=.jpg,.jpeg,.png,.zip,.mp4,.gif,.pdf,.7z,.mp3,.wav,.rar,.mov,.docx,.jpe,.webp
+ALLOWED_EXTENSIONS=.jpg,.jpeg,.png,.zip,.mp4,.gif,.pdf,.7z,.mp3,.wav,.rar,.mov,.docx,.jpe,.webp,.webm,.avi
 
 # Comma-separated file types to download (attachment, thumbnail, embed, external) - leave empty
 # to allow attachment/thumbnail/embed. 'external' (Drive/Mega links in the post body) is opt-in
