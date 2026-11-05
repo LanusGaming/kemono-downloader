@@ -145,7 +145,7 @@ behavior independently per creator.
 | `ALLOWED_EXTENSIONS` | `.jpg,.jpeg,.png,.zip,.mp4,.gif,.pdf,.7z,.mp3,.wav,.rar,.mov,.docx,.jpe,.webp,.webm,.avi` | Comma-separated list of file extensions to download. Empty allows any extension. |
 | `ALLOWED_TYPES` | `attachment` | Comma-separated subset of `attachment`, `thumbnail`, `embed`, `external`. Empty allows `attachment`/`thumbnail`/`embed` (not `external` — see below). `embed` (images referenced in the post body) and `external` both cost one extra API call per post to fetch the full content, where the mirror doesn't already send it. |
 | `AUTO_UNZIP` | `true` | Automatically extract downloaded `.zip`/`.rar`/`.7z` archives. |
-| `KEEP_UNPACKED_ARCHIVES` | `true` | Keep the archive file on disk after successful extraction. |
+| `KEEP_UNPACKED_ARCHIVES` | `false` | Keep the archive file on disk after successful extraction. |
 | `KEEP_FAILED_ARCHIVES` | `false` | If extraction fails (no known password works, or an error occurs), keep the archive on disk as-is instead of deleting it. When `false` (default), a failed archive is deleted and **retried on every subsequent run**; when `true`, it's kept and left alone. |
 | `ARCHIVE_PASSWORDS` | `""` | Comma-separated list of passwords to try, in order, before giving up. The shipped `""` entry means "also try no password". Grows automatically: whenever a new password is discovered for one of this creator's archives, it's appended here so future archives try it first. A password containing a literal comma must be quoted, e.g. `"pass,word",other`. |
 
@@ -201,7 +201,7 @@ Given a creator named `SomeArtist` on `patreon` with ID `12345`, downloads land 
   sibling folder named after the archive with the extension stripped (`002_bonus_content/`), and
   each entry inside is prefixed with the archive's own index (`002`) plus its own index within the
   archive (`000`, `001`, ...), e.g. `002_000_page01.jpg`. The archive file itself is only kept
-  alongside it if `KEEP_UNPACKED_ARCHIVES=true` (the default).
+  alongside it if `KEEP_UNPACKED_ARCHIVES=true` (default `false`).
 
 ## Filtering Posts and Files
 Filtering happens in two independent layers, both configured [per creator](#per-creator-config-configcreatorsservice_idconf):

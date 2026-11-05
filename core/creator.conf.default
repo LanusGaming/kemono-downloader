@@ -16,7 +16,7 @@ ALLOWED_TYPES=attachment
 AUTO_UNZIP=true
 
 # Keep archive files after successful extraction
-KEEP_UNPACKED_ARCHIVES=true
+KEEP_UNPACKED_ARCHIVES=false
 
 # Keep archives that failed to extract instead of deleting + retrying every run
 KEEP_FAILED_ARCHIVES=false
