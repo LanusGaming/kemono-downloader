@@ -24,3 +24,8 @@ KEEP_FAILED_ARCHIVES=false
 # Comma-separated archive passwords to try - the shipped "" entry means "also try no password".
 # A password containing a literal comma must be quoted, e.g. "pass,word",other
 ARCHIVE_PASSWORDS=""
+
+# Immich album name for this creator, without quotes - leave empty for the name derived from
+# the folder. Give several creators (e.g. someone's Patreon and Fanbox) the same name to merge
+# them into one album. Written to the creator folder's .albumprops for the album creator.
+ALBUM_NAME=

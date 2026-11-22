@@ -908,3 +908,107 @@ def test_unpack_dedups_and_filters_extracted_entries(make_creator, monkeypatch, 
     saved = fresh_db.get_files_for_creator(creator.service, creator.id)
     saved_names = {s['name'] for s in saved if s['type'] == 'archive'}
     assert saved_names == {'keep.jpg'}
+
+
+# --- sync_album_props() ---
+
+def read_albumprops(creator):
+    path = os.path.join(creator.get_folder_path(), '.albumprops')
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding='utf-8') as f:
+        return f.read()
+
+
+def test_sync_album_props_writes_override_name_as_valid_yaml(make_creator):
+    import json
+    creator = make_creator(name="Gurumie's_Goomroom")
+    os.makedirs(creator.get_folder_path())
+    creator.ALBUM_NAME = 'Gurumie: "the" artist 🎨'
+
+    creator.sync_album_props()
+
+    content = read_albumprops(creator)
+    assert content.startswith(creator_module.ALBUMPROPS_MARKER)
+    # A JSON string is a valid YAML double-quoted scalar - no PyYAML dependency needed to check.
+    key, _, value = content.splitlines()[1].partition(': ')
+    assert key == 'override_name'
+    assert json.loads(value) == 'Gurumie: "the" artist 🎨'
+    assert value.startswith('"')
+
+
+def test_sync_album_props_does_nothing_without_name_or_folder(make_creator):
+    creator = make_creator()
+    creator.ALBUM_NAME = 'Merged'
+    creator.sync_album_props()  # folder doesn't exist yet
+    assert not os.path.exists(creator.get_folder_path())
+
+    os.makedirs(creator.get_folder_path())
+    creator.ALBUM_NAME = ''
+    creator.sync_album_props()
+    assert read_albumprops(creator) is None
+
+
+def test_sync_album_props_removes_own_file_when_name_cleared(make_creator):
+    creator = make_creator()
+    os.makedirs(creator.get_folder_path())
+    creator.ALBUM_NAME = 'Merged'
+    creator.sync_album_props()
+
+    creator.ALBUM_NAME = ''
+    creator.sync_album_props()
+
+    assert read_albumprops(creator) is None
+
+
+def test_sync_album_props_only_rewrites_on_change(make_creator):
+    creator = make_creator()
+    os.makedirs(creator.get_folder_path())
+    creator.ALBUM_NAME = 'Merged'
+    creator.sync_album_props()
+    path = os.path.join(creator.get_folder_path(), '.albumprops')
+    os.utime(path, (1000, 1000))
+
+    creator.sync_album_props()
+    assert os.path.getmtime(path) == 1000
+
+    creator.ALBUM_NAME = 'Renamed'
+    creator.sync_album_props()
+    assert 'Renamed' in read_albumprops(creator)
+
+
+def test_sync_album_props_leaves_hand_written_file_alone(make_creator):
+    creator = make_creator()
+    os.makedirs(creator.get_folder_path())
+    path = os.path.join(creator.get_folder_path(), '.albumprops')
+    with open(path, 'w') as f:
+        f.write('description: mine\n')
+
+    creator.ALBUM_NAME = 'Merged'
+    creator.sync_album_props()
+    creator.ALBUM_NAME = ''
+    creator.sync_album_props()
+
+    assert read_albumprops(creator) == 'description: mine\n'
+
+
+def test_album_name_is_read_from_creator_config(make_creator, tmp_dirs):
+    creator = make_creator()
+    assert creator.ALBUM_NAME == ''
+
+    with open(creator._config_path(), 'a') as f:
+        f.write('\nALBUM_NAME=Merged Name\n')
+    creator.load_config()
+
+    assert creator.ALBUM_NAME == 'Merged Name'
+
+
+def test_download_syncs_album_props_even_with_no_new_files(make_creator, monkeypatch):
+    creator = make_creator()
+    os.makedirs(creator.get_folder_path())
+    creator.ALBUM_NAME = 'Merged'
+    monkeypatch.setattr(creator_module, "get_all_posts_from_creator", lambda *a, **k: [])
+    monkeypatch.setattr(creator_module.time, "sleep", lambda s: None)
+
+    assert creator.download().status == 'no_new_files'
+    assert 'Merged' in read_albumprops(creator)

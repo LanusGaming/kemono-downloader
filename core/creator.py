@@ -25,9 +25,15 @@ failure_logger = logging.getLogger("failed")
 CREATOR_CONFIG_SCHEMA = {
     'INCLUDE_REGEX': str, 'EXCLUDE_REGEX': str, 'ALLOWED_EXTENSIONS': list, 'ALLOWED_TYPES': list,
     'AUTO_UNZIP': bool, 'KEEP_UNPACKED_ARCHIVES': bool, 'KEEP_FAILED_ARCHIVES': bool,
-    'ARCHIVE_PASSWORDS': list,
+    'ARCHIVE_PASSWORDS': list, 'ALBUM_NAME': str,
 }
 DEFAULT_CREATOR_CONFIG_TEMPLATE = os.path.join(os.path.dirname(__file__), 'creator.conf.default')
+
+# Read by immich-folder-album-creator (READ_ALBUM_PROPERTIES=true): `override_name` replaces the
+# album name derived from the folder, and folders sharing a name land in one album. The marker
+# line tells our own file apart from one someone wrote by hand, which is never touched.
+ALBUMPROPS_FILENAME = '.albumprops'
+ALBUMPROPS_MARKER = '# Written by kemono-downloader from ALBUM_NAME'
 
 class Creator:
     def __init__(self, service: str, id: str):
@@ -275,7 +281,57 @@ class Creator:
 
         return (files, skipped)
 
+    def get_folder_path(self) -> str:
+        """The creator's top-level folder under DATA_DIR - same naming as File.get_folder_path()."""
+
+        return os.path.join(app_config.DATA_DIR, f"{self.name}_{self.service}_{self.id}")
+
+    def sync_album_props(self):
+        """Makes the creator folder's .albumprops match ALBUM_NAME: written (only when its content
+        changes) if set, removed if cleared. Does nothing before the folder exists, and never
+        touches an .albumprops without our marker line."""
+
+        folder = self.get_folder_path()
+        if not os.path.isdir(folder):
+            return
+
+        path = os.path.join(folder, ALBUMPROPS_FILENAME)
+        existing = None
+        if os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as f:
+                existing = f.read()
+            if not existing.startswith(ALBUMPROPS_MARKER):
+                logger.warning(f"Leaving {path} alone - not written by kemono-downloader")
+                return
+
+        album_name = (self.ALBUM_NAME or '').strip()
+        if not album_name:
+            if existing is not None:
+                os.remove(path)
+                logger.info(f"Removed {ALBUMPROPS_FILENAME} (ALBUM_NAME cleared) -> {path}")
+            return
+
+        # A JSON string is also a valid YAML double-quoted scalar, so any name is safely quoted.
+        content = (f"{ALBUMPROPS_MARKER} in creators/{self.service}_{self.id}.conf\n"
+                   f"override_name: {json.dumps(album_name, ensure_ascii=False)}\n")
+        if content != existing:
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            logger.info(f"Album name set to {album_name!r} -> {path}")
+
     def download(self) -> CreatorSummary:
+        """Runs _download(), then syncs .albumprops - afterwards, so a creator's very first run
+        (whose folder didn't exist before it) already gets its custom album name."""
+
+        try:
+            return self._download()
+        finally:
+            try:
+                self.sync_album_props()
+            except OSError as e:
+                logger.warning(f"Could not update {ALBUMPROPS_FILENAME}: {e}")
+
+    def _download(self) -> CreatorSummary:
         """Fetches all posts, detects and filters their files (has_full=False skip, then
         INCLUDE/EXCLUDE_REGEX on the post title, then hash dedup against self.hashes), then
         downloads what's new. A file with no publish date borrows a neighboring post's date as a

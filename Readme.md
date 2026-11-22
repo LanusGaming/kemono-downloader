@@ -148,6 +148,7 @@ behavior independently per creator.
 | `KEEP_UNPACKED_ARCHIVES` | `false` | Keep the archive file on disk after successful extraction. |
 | `KEEP_FAILED_ARCHIVES` | `false` | If extraction fails (no known password works, or an error occurs), keep the archive on disk as-is instead of deleting it. When `false` (default), a failed archive is deleted and **retried on every subsequent run**; when `true`, it's kept and left alone. |
 | `ARCHIVE_PASSWORDS` | `""` | Comma-separated list of passwords to try, in order, before giving up. The shipped `""` entry means "also try no password". Grows automatically: whenever a new password is discovered for one of this creator's archives, it's appended here so future archives try it first. A password containing a literal comma must be quoted, e.g. `"pass,word",other`. |
+| `ALBUM_NAME` | *(empty)* | Immich album name for this creator, without quotes. Empty keeps the album creator's name derived from the folder. Give several creators (e.g. someone's Patreon and Fanbox) the same name to merge them into one album — see [Album-Creator Integration](#album-creator-integration). |
 
 > [!TIP]
 > Passwords are also looked up from kemono's own per-file metadata (if the file's hash is known to
@@ -324,6 +325,23 @@ project, a thin wrapper that idles until triggered over plain HTTP and then runs
 this container's `/data` output — no Docker socket access needed on either side.
 
 Just make sure the two containers sit on a common network, so the webhook can be reached from here.
+
+### Custom and merged album names
+By default each creator folder becomes its own album, named after the folder. Setting
+`ALBUM_NAME` in a creator's config makes every run write a `.albumprops` file into that
+creator's folder with `override_name: <ALBUM_NAME>`. immich-folder-album-creator uses it as the
+album name, and puts folders that share a name into one album, so giving a creator's Patreon and
+Fanbox configs the same `ALBUM_NAME` merges them. Nothing on disk moves, so Immich keeps every
+asset as it is.
+
+- The album creator needs `READ_ALBUM_PROPERTIES=true` and read access to the files, mounted at
+  the same path Immich sees them under (its `ROOT_PATH`).
+- Clearing `ALBUM_NAME` removes the file again. An `.albumprops` written by hand (without the
+  marker comment on its first line) is never changed or removed.
+- The album under the old name isn't deleted by the album creator. Delete it in Immich once the
+  new one exists.
+- The file is written after the creator's download step, so it only exists once the creator has
+  a folder.
 
 ## Logs & Failures
 Everything under `config/`, alongside the config files and database:
