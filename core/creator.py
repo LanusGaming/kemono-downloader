@@ -286,38 +286,45 @@ class Creator:
 
         return os.path.join(app_config.DATA_DIR, f"{self.name}_{self.service}_{self.id}")
 
+    def get_all_folder_paths(self) -> list[str]:
+        """Every folder of this creator under DATA_DIR, i.e. every `<any name>_<service>_<id>` -
+        a creator renamed on the mirror gets a new folder while the old one stays."""
+
+        suffix = f"_{self.service}_{self.id}"
+        try:
+            with os.scandir(app_config.DATA_DIR) as entries:
+                return sorted(e.path for e in entries if e.is_dir() and e.name.endswith(suffix))
+        except FileNotFoundError:
+            return []
+
     def sync_album_props(self):
-        """Makes the creator folder's .albumprops match ALBUM_NAME: written (only when its content
-        changes) if set, removed if cleared. Does nothing before the folder exists, and never
-        touches an .albumprops without our marker line."""
-
-        folder = self.get_folder_path()
-        if not os.path.isdir(folder):
-            return
-
-        path = os.path.join(folder, ALBUMPROPS_FILENAME)
-        existing = None
-        if os.path.exists(path):
-            with open(path, 'r', encoding='utf-8') as f:
-                existing = f.read()
-            if not existing.startswith(ALBUMPROPS_MARKER):
-                logger.warning(f"Leaving {path} alone - not written by kemono-downloader")
-                return
+        """Makes the .albumprops in each of the creator's folders match ALBUM_NAME: written (only
+        when its content changes) if set, removed if cleared. Does nothing for a creator without a
+        folder yet, and never touches an .albumprops without our marker line."""
 
         album_name = (self.ALBUM_NAME or '').strip()
-        if not album_name:
-            if existing is not None:
-                os.remove(path)
-                logger.info(f"Removed {ALBUMPROPS_FILENAME} (ALBUM_NAME cleared) -> {path}")
-            return
-
         # A JSON string is also a valid YAML double-quoted scalar, so any name is safely quoted.
         content = (f"{ALBUMPROPS_MARKER} in creators/{self.service}_{self.id}.conf\n"
                    f"override_name: {json.dumps(album_name, ensure_ascii=False)}\n")
-        if content != existing:
-            with open(path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            logger.info(f"Album name set to {album_name!r} -> {path}")
+
+        for folder in self.get_all_folder_paths():
+            path = os.path.join(folder, ALBUMPROPS_FILENAME)
+            existing = None
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    existing = f.read()
+                if not existing.startswith(ALBUMPROPS_MARKER):
+                    logger.warning(f"Leaving {path} alone - not written by kemono-downloader")
+                    continue
+
+            if not album_name:
+                if existing is not None:
+                    os.remove(path)
+                    logger.info(f"Removed {ALBUMPROPS_FILENAME} (ALBUM_NAME cleared) -> {path}")
+            elif content != existing:
+                with open(path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                logger.info(f"Album name set to {album_name!r} -> {path}")
 
     def download(self) -> CreatorSummary:
         """Runs _download(), then syncs .albumprops - afterwards, so a creator's very first run

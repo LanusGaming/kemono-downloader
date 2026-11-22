@@ -340,8 +340,9 @@ asset as it is.
   marker comment on its first line) is never changed or removed.
 - The album under the old name isn't deleted by the album creator. Delete it in Immich once the
   new one exists.
-- The file is written after the creator's download step, so it only exists once the creator has
-  a folder.
+- The file goes into every folder of the creator (`<any name>_<service>_<id>`), including one
+  left behind under an old name after the creator renamed themselves. It's written after the
+  download step, so it only exists once the creator has a folder.
 
 ## Logs & Failures
 Everything under `config/`, alongside the config files and database:

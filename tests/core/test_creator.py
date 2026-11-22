@@ -1012,3 +1012,18 @@ def test_download_syncs_album_props_even_with_no_new_files(make_creator, monkeyp
 
     assert creator.download().status == 'no_new_files'
     assert 'Merged' in read_albumprops(creator)
+
+
+def test_sync_album_props_covers_folders_left_from_an_old_creator_name(make_creator, tmp_dirs):
+    creator = make_creator(service='patreon', id='2859688', name='Dr-Alu')
+    old = tmp_dirs['data'] / 'dralu_patreon_2859688'
+    unrelated = tmp_dirs['data'] / 'other_patreon_12859688'
+    for d in (creator.get_folder_path(), old, unrelated):
+        os.makedirs(d)
+    creator.ALBUM_NAME = 'Dr-Alu'
+
+    creator.sync_album_props()
+
+    assert 'Dr-Alu' in read_albumprops(creator)
+    assert (old / '.albumprops').read_text(encoding='utf-8') == read_albumprops(creator)
+    assert not (unrelated / '.albumprops').exists()
