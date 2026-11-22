@@ -16,8 +16,9 @@ def reconcile(creator: Creator, add_favorites: bool = False):
     expected post/hash, without downloading. Unmatched files are recorded as best-effort
     "stragglers" so dedup still protects them."""
 
-    folder_path = f"{DATA_DIR}/{creator.name}_{creator.service}_{creator.id}"
-    if not os.path.exists(folder_path):
+    # Every folder of the creator - a rename on the mirror can leave files under an old name.
+    folder_paths = creator.get_all_folder_paths()
+    if not folder_paths:
         logger.info(f"No files on disk for this creator")
         return
 
@@ -36,7 +37,7 @@ def reconcile(creator: Creator, add_favorites: bool = False):
     counts = {'matched': 0, 'archive_child': 0, 'straggler': 0, 'already_recorded': 0, 'skipped': 0}
     archive_folder_info: dict[str, dict] = {}
 
-    for root, _, filenames in os.walk(folder_path):
+    for root, _, filenames in (entry for path in folder_paths for entry in os.walk(path)):
         for filename in filenames:
             # sanitize_filename() strips ':' from every real name, so a literal ':' can only be
             # a filesystem artifact (e.g. Windows Zone.Identifier ADS markers) - never real content.

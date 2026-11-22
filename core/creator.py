@@ -59,6 +59,10 @@ class Creator:
         self.load_config()
         logger.info(f"Loading hashes...")
         self.load_files()
+
+        self.folder_name = self.resolve_folder_name()
+        if self.folder_name != self.default_folder_name():
+            logger.info(f"Using existing folder {self.folder_name} (name on the mirror is now {self.name})")
     
     def _config_path(self) -> str:
         return os.path.join(app_config.CONFIG_DIR, 'creators', f'{self.service}_{self.id}.conf')
@@ -192,6 +196,7 @@ class Creator:
                 'creator_id': self.id,
                 'creator_service': self.service,
                 'creator_name': self.name,
+                'creator_folder': self.folder_name,
                 'post_id': post['id'],
                 'post_title': sanitize_filename(post['title']),
                 'published': get_post_time(post['published']) if post['published'] else None,
@@ -264,6 +269,7 @@ class Creator:
                     'creator_id': self.id,
                     'creator_service': self.service,
                     'creator_name': self.name,
+                'creator_folder': self.folder_name,
                     'post_id': post['id'],
                     'post_title': sanitize_filename(post['title']),
                     'published': get_post_time(post['published']) if post['published'] else None,
@@ -281,10 +287,32 @@ class Creator:
 
         return (files, skipped)
 
-    def get_folder_path(self) -> str:
-        """The creator's top-level folder under DATA_DIR - same naming as File.get_folder_path()."""
+    def default_folder_name(self) -> str:
+        return f"{self.name}_{self.service}_{self.id}"
 
-        return os.path.join(app_config.DATA_DIR, f"{self.name}_{self.service}_{self.id}")
+    def resolve_folder_name(self) -> str:
+        """The folder this creator's files go into. A creator renamed on the mirror keeps the
+        folder it was first downloaded into (where its earliest DB file lives), so a rename
+        doesn't split it across two folders and albums. Without DB rows (e.g. before a
+        reconcile), an existing `<any name>_<service>_<id>` folder is used; a new creator gets
+        its current name."""
+
+        suffix = f"_{self.service}_{self.id}"
+        first_path = db.get_first_file_path(self.service, self.id)
+        if first_path:
+            folder = os.path.relpath(first_path, app_config.DATA_DIR).split(os.sep)[0]
+            if folder.endswith(suffix) and os.path.isdir(os.path.join(app_config.DATA_DIR, folder)):
+                return folder
+
+        existing = [os.path.basename(p) for p in self.get_all_folder_paths()]
+        if self.default_folder_name() in existing or not existing:
+            return self.default_folder_name()
+        return existing[0]
+
+    def get_folder_path(self) -> str:
+        """The creator's top-level folder under DATA_DIR - see resolve_folder_name()."""
+
+        return os.path.join(app_config.DATA_DIR, self.folder_name)
 
     def get_all_folder_paths(self) -> list[str]:
         """Every folder of this creator under DATA_DIR, i.e. every `<any name>_<service>_<id>` -

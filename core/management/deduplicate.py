@@ -15,7 +15,7 @@ def deduplicate(creator: Creator):
     creator_files = {row['path']: row['hash'] for row in rows}
     file_types = {row['path']: row['type'] for row in rows}
 
-    folder_path = f"/{creator.name}_{creator.service}_{creator.id}"
+    folder_path = f"/{creator.folder_name}"
     if not os.path.exists(DATA_DIR + folder_path):
         logger.info(f"No files for creator found")
         return

@@ -1,3 +1,4 @@
+import os
 import core.management.reconcile as reconcile_module
 from core.file import File
 from core.files import generate_hash
@@ -139,3 +140,19 @@ def test_malformed_filename_is_skipped_not_fatal(make_creator, monkeypatch, tmp_
     saved = fresh_db.get_files_for_creator(creator.service, creator.id)
     assert len(saved) == 1
     assert saved[0]['name'] == 'valid.jpg'
+
+
+def test_files_in_a_folder_from_an_old_creator_name_are_reconciled_too(make_creator, monkeypatch, tmp_dirs, fresh_db):
+    creator = make_creator(name='NewName')
+    creator.ALLOWED_TYPES = []
+    for folder in ('NewName_patreon_111', 'oldname_patreon_111'):
+        post_dir = tmp_dirs["data"] / folder / "A_Post_p1"
+        post_dir.mkdir(parents=True)
+        (post_dir / "000_x.png").write_bytes(folder.encode())
+    monkeypatch.setattr(reconcile_module, "get_all_posts_from_creator", lambda *a, **k: [make_post()])
+
+    reconcile(creator)
+
+    saved = {os.path.relpath(f['path'], tmp_dirs["data"]).split(os.sep)[0]
+             for f in fresh_db.get_files_for_creator(creator.service, creator.id)}
+    assert saved == {'NewName_patreon_111', 'oldname_patreon_111'}

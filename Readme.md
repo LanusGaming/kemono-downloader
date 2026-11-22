@@ -60,7 +60,9 @@ Files land on disk under:
 ```
 /data/<creator name>_<service>_<creator id>/<post title>_<post id>/<file index>_<file name>
 ```
-See [Data Layout](#data-layout) for a concrete example.
+See [Data Layout](#data-layout) for a concrete example. A creator who renames themselves on the
+mirror keeps their folder: new files go into the folder holding the creator's earliest download
+(or, without DB records, any existing `<any name>_<service>_<creator id>` folder).
 
 ## Requirements
 - A kemono.cr (or mirror) account, and its session cookie value (see [below](#session-cookie-env)).

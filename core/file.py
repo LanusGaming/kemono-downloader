@@ -27,6 +27,7 @@ DEFAULT_FILE = {
     'creator_id': '',
     'creator_service': '',
     'creator_name': '',
+    'creator_folder': '',  # the creator's folder name under DATA_DIR - see Creator.resolve_folder_name()
     'post_id': '',
     'post_title': '',
     'published': 0.0,
@@ -64,7 +65,8 @@ class File:
         return data
     
     def get_folder_path(self) -> str:
-        return f"/{self.creator_name}_{self.creator_service}_{self.creator_id}/{self.post_title}_{self.post_id}"
+        creator_folder = self.creator_folder or f"{self.creator_name}_{self.creator_service}_{self.creator_id}"
+        return f"/{creator_folder}/{self.post_title}_{self.post_id}"
     
     def get_filename(self) -> str:
         return f"{self.index:03d}_{self.name}"

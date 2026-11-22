@@ -1027,3 +1027,53 @@ def test_sync_album_props_covers_folders_left_from_an_old_creator_name(make_crea
     assert 'Dr-Alu' in read_albumprops(creator)
     assert (old / '.albumprops').read_text(encoding='utf-8') == read_albumprops(creator)
     assert not (unrelated / '.albumprops').exists()
+
+
+# --- resolve_folder_name() ---
+
+def record_file_at(fresh_db, creator, path):
+    fresh_db.upsert_post(creator.service, creator.id, 'p1', 'Post', 1000.0)
+    fresh_db.insert_file(File({
+        'creator_id': creator.id, 'creator_service': creator.service, 'post_id': 'p1',
+        'published': 1000.0, 'index': 0, 'hash': 'h-' + os.path.basename(path), 'path': str(path),
+        'name': os.path.basename(path), 'url': 'https://x/' + os.path.basename(path), 'type': 'attachment',
+    }))
+
+
+def test_new_creator_uses_its_current_name(make_creator):
+    creator = make_creator(name='Someone')
+    assert creator.folder_name == 'Someone_patreon_111'
+
+
+def test_renamed_creator_keeps_folder_of_its_first_download(make_creator, fresh_db, tmp_dirs):
+    old = tmp_dirs['data'] / 'dralu_patreon_111' / 'Post_p1'
+    new = tmp_dirs['data'] / 'Dr-Alu_patreon_111' / 'Post_p2'
+    old.mkdir(parents=True)
+    new.mkdir(parents=True)
+    creator = make_creator(name='Dr-Alu')
+    record_file_at(fresh_db, creator, old / '000_a.png')   # earliest row
+    record_file_at(fresh_db, creator, new / '000_b.png')
+
+    creator = make_creator(name='Dr-Alu')
+
+    assert creator.folder_name == 'dralu_patreon_111'
+    assert creator.get_folder_path() == str(tmp_dirs['data'] / 'dralu_patreon_111')
+    files, _ = creator.detect_files_in_post({
+        'id': 'p3', 'service': 'patreon', 'user': '111', 'title': 'New', 'published': '2024-01-01T00:00:00',
+        'file': None, 'attachments': [{'path': '/ab/cd/abcd.png', 'name': 'new.png'}],
+    })
+    assert files[0].get_dest_download_path().startswith(str(tmp_dirs['data'] / 'dralu_patreon_111' / 'New_p3'))
+
+
+def test_without_db_rows_an_existing_folder_on_disk_is_reused(make_creator, tmp_dirs):
+    (tmp_dirs['data'] / 'oldname_patreon_111').mkdir()
+    (tmp_dirs['data'] / 'other_patreon_1111').mkdir()
+    creator = make_creator(name='NewName')
+    assert creator.folder_name == 'oldname_patreon_111'
+
+
+def test_folder_of_first_download_ignored_once_deleted(make_creator, fresh_db, tmp_dirs):
+    creator = make_creator(name='Someone')
+    record_file_at(fresh_db, creator, tmp_dirs['data'] / 'gone_patreon_111' / 'Post_p1' / '000_a.png')
+    creator = make_creator(name='Someone')
+    assert creator.folder_name == 'Someone_patreon_111'

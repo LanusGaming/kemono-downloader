@@ -127,6 +127,15 @@ def insert_file(file) -> int:
     conn.commit()
     return conn.execute("SELECT id FROM files WHERE path=?", (file.path,)).fetchone()['id']
 
+def get_first_file_path(service: str, id: str) -> str | None:
+    """Path of the creator's earliest recorded file - tells which folder the creator was first
+    downloaded into."""
+
+    conn = get_connection()
+    row = conn.execute("SELECT path FROM files WHERE creator_service=? AND creator_id=? ORDER BY id LIMIT 1",
+                       (service, id)).fetchone()
+    return row['path'] if row else None
+
 def path_exists_in_db(path: str) -> bool:
     conn = get_connection()
     row = conn.execute("SELECT 1 FROM files WHERE path=?", (path,)).fetchone()
