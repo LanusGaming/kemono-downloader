@@ -473,7 +473,7 @@ class Creator:
         invocation, then finalizes and records each individually. A lone file link is fetched
         directly; a folder's selection numbers are re-resolved from a fresh listing (contents can
         change between detection and download). On a partial failure, only files not fully on
-        disk (size-checked against the listing) are failed - the rest are still recorded."""
+        disk under their real name are failed - the rest are still recorded."""
 
         results = {}
         temp_dir = f"{app_config.TEMP_DIR}/mega_{hashlib.sha1(link_url.encode()).hexdigest()}"
@@ -507,10 +507,10 @@ class Creator:
             download_error = e
 
         for file, src_path in path_map.items():
-            expected_size = path_to_entry.get(file.ref_id, {}).get('size')
-            complete = os.path.exists(src_path) and (expected_size is None or os.path.getsize(src_path) == expected_size)
-
-            if not complete:
+            # megatools writes into a .megatmp.* file and only renames it to the real name once
+            # the transfer completes, so the real name existing means the file is complete. Don't
+            # compare against the listing's size: megatools rounds it for display ("4.1 MiB").
+            if not os.path.exists(src_path):
                 reason = download_error.reason if download_error else summary.FAIL_NOT_FOUND
                 logger.error(f"Mega download did not produce the expected file -> {src_path}")
                 failure_logger.error(json.dumps({**file.get_data(), 'reason': reason}))

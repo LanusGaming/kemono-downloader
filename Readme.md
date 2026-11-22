@@ -237,7 +237,8 @@ after download:
 Some creators paste a Google Drive or Mega share link into the post body instead of attaching the
 file directly. Setting `ALLOWED_TYPES` to include `external` for a creator makes this script
 follow those links and download what's behind them, through the same dedup, extraction, and
-`ALLOWED_EXTENSIONS` filtering as any other file type.
+`ALLOWED_EXTENSIONS` filtering as any other file type. A link is found whether it's pasted as
+plain text or hidden behind other link text (e.g. `<a href="https://mega.nz/...">LINK</a>`).
 
 - **Opt-in only** — `external` is never implied by an empty `ALLOWED_TYPES`, since resolving a
   link costs an extra network call per link found.
@@ -256,7 +257,9 @@ follow those links and download what's behind them, through the same dedup, extr
   link. Mega's own link-level password feature (`mega.nz/#P!...`) isn't supported and is skipped.
   A transfer stalled for `MEGA_STALL_TIMEOUT` (megatools can hang on Mega's bandwidth quota
   instead of erroring) is aborted; any files that had already finished downloading are kept
-  rather than discarded along with the rest of the batch.
+  rather than discarded along with the rest of the batch. A file counts as finished once it
+  exists under its real name - megatools writes into a `.megatmp.*` file and only renames it
+  when the transfer completes.
 - A quota/rate-limit rejection fails that file immediately with no in-run retry, and shows up in
   the run summary as `external_quota_exceeded` — these reset on their own schedule.
 

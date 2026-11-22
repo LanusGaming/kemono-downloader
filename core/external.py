@@ -30,6 +30,9 @@ MEGA_OLD_FILE_RE = re.compile(r'https?://mega\.(?:nz|co\.nz)/\s*#!([\w-]+)!([\w-
 # be reported as unsupported.
 MEGA_PROTECTED_RE = re.compile(r'https?://mega\.(?:nz|co\.nz)/\s*#P!\S+', re.I)
 
+_EXTERNAL_LINK_RES = (GDRIVE_FILE_RE, GDRIVE_FOLDER_RE, MEGA_NEW_FILE_RE, MEGA_NEW_FOLDER_RE,
+                      MEGA_OLD_FOLDER_RE, MEGA_OLD_FILE_RE, MEGA_PROTECTED_RE)
+
 # The value is restricted to ASCII alnum/-/_ so a CJK label can't false-positive into the kana
 # that follows an unrelated word (e.g. "パスタ" / pasta). Latin "pass"/"password" requires a
 # colon or whitespace before the value ("passenger" shouldn't match); CJK labels don't need a
@@ -69,14 +72,26 @@ def find_post_password(html_content: str) -> str | None:
     return next((g for g in m.groups() if g), None)
 
 def find_external_links(html_content: str) -> list[dict]:
-    """Scans a post's HTML content for Google Drive/Mega links in plain text (not hidden behind
-    an href with different link text), one dict per distinct link: {'platform': 'gdrive'|'mega',
-    'kind': 'file'|'folder'|'unsupported', 'url', 'ref_id', 'password'}."""
+    """Scans a post's HTML content for Google Drive/Mega links, in plain text or as the href of
+    an anchor with other link text (e.g. "LINK"), one dict per distinct link: {'platform':
+    'gdrive'|'mega', 'kind': 'file'|'folder'|'unsupported', 'url', 'ref_id', 'password'}."""
 
     if not html_content:
         return []
 
-    text = BeautifulSoup(html_content, 'html.parser').get_text('\n')
+    soup = BeautifulSoup(html_content, 'html.parser')
+
+    # Write a hidden href into its anchor's text, so it's matched below at the anchor's position
+    # and the password scrape still looks around the right spot. Anchors already showing a link
+    # are left alone - their href is usually the same URL, which would only be listed twice.
+    for a in soup.select('a[href]'):
+        href = a['href']
+        anchor_text = a.get_text()
+        if (any(r.search(href) for r in _EXTERNAL_LINK_RES)
+                and not any(r.search(anchor_text) for r in _EXTERNAL_LINK_RES)):
+            a.append(f' {href} ')
+
+    text = soup.get_text('\n')
 
     links = []
     seen = set()

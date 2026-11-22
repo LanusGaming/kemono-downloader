@@ -700,6 +700,31 @@ def test_download_mega_link_download_error_fails_all_files_in_link(make_creator,
     assert results[file_b].status == 'failed'
 
 
+def test_download_mega_link_accepts_file_whose_size_differs_from_rounded_listing(make_creator, monkeypatch, fresh_db):
+    # megatools only shows rounded sizes ("4.1 MiB" -> 4299161 bytes), so a finished file
+    # almost never matches the listing's size exactly - that must not fail the download.
+    creator = make_creator()
+    fresh_db.ensure_creator(creator.service, creator.id, creator.name, creator.last_imported)
+    fresh_db.upsert_post(creator.service, creator.id, 'p1', 'Post', 1000.0)
+
+    file = make_mega_file(creator, ref_id='Gigi alt/gigilewd.png', link_url='https://mega.nz/folder/x#y', name='gigilewd.png')
+
+    monkeypatch.setattr(creator_module.external, "list_mega_folder", lambda url: [
+        {'number': 2, 'name': 'gigilewd.png', 'path': 'Gigi alt/gigilewd.png', 'size': 4299161},
+    ])
+
+    def fake_selection(url, numbers, dest_dir):
+        os.makedirs(os.path.join(dest_dir, 'Gigi alt'), exist_ok=True)
+        with open(os.path.join(dest_dir, 'Gigi alt/gigilewd.png'), 'wb') as f:
+            f.write(b'not exactly 4299161 bytes')
+    monkeypatch.setattr(creator_module.external, "download_mega_selection", fake_selection)
+
+    results = creator.download_mega_link('https://mega.nz/folder/x#y', [file])
+
+    assert results[file].status == 'success'
+    assert os.path.exists(file.path)
+
+
 def test_download_mega_link_salvages_completed_files_when_batch_fails_partway(make_creator, monkeypatch, fresh_db):
     # A stall/quota block partway through a multi-file selection shouldn't discard files that
     # had already fully downloaded before it hit - only the genuinely incomplete one should fail.
@@ -718,9 +743,9 @@ def test_download_mega_link_salvages_completed_files_when_batch_fails_partway(ma
     def fake_selection(url, numbers, dest_dir):
         os.makedirs(os.path.join(dest_dir, 'Set'), exist_ok=True)
         with open(os.path.join(dest_dir, 'Set/done.bin'), 'wb') as f:
-            f.write(b'abcde')  # matches the listed size - fully downloaded
-        with open(os.path.join(dest_dir, 'Set/stuck.bin'), 'wb') as f:
-            f.write(b'ab')  # short of the listed size - was mid-transfer when it stalled
+            f.write(b'abcde')  # finished - megatools renamed it to the real name
+        with open(os.path.join(dest_dir, 'Set/.megatmp.AbC123'), 'wb') as f:
+            f.write(b'ab')  # stuck.bin, still mid-transfer under megatools' temp name when it stalled
         raise QuotaExceededError("stalled")
     monkeypatch.setattr(creator_module.external, "download_mega_selection", fake_selection)
 

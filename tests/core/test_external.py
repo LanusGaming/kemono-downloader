@@ -89,6 +89,42 @@ def test_no_links_returns_empty_list():
     assert find_external_links('') == []
 
 
+def test_finds_mega_link_hidden_behind_other_link_text():
+    content = (
+        '<p><a href="https://mega.nz/folder/7rBXDDbI#n5XDPb-fqXGMV6kVl1ah6w">LINK</a>Enjoy!!!</p>'
+        '<p>I drew Shylily again<a href="https://mega.nz/folder/nyRBWTSD#aMn2asZLW2e9NbuUTxlpcg">ALT</a></p>'
+    )
+    links = find_external_links(content)
+
+    assert [(l['platform'], l['kind'], l['ref_id']) for l in links] == [
+        ('mega', 'folder', '7rBXDDbI'), ('mega', 'folder', 'nyRBWTSD')]
+    assert links[0]['url'] == 'https://mega.nz/folder/7rBXDDbI#n5XDPb-fqXGMV6kVl1ah6w'
+
+
+def test_hidden_link_password_is_scraped_near_its_anchor():
+    content = (
+        '<p><a href="https://drive.google.com/file/d/1QHb6UPDJokQ0Bb6Hvp3E6hnr9OnvyYT9/view">Download</a></p>'
+        '<p>pass : raigyocreative</p>'
+    )
+    links = find_external_links(content)
+
+    assert len(links) == 1
+    assert links[0]['ref_id'] == '1QHb6UPDJokQ0Bb6Hvp3E6hnr9OnvyYT9'
+    assert links[0]['password'] == 'raigyocreative'
+
+
+def test_href_of_anchor_already_showing_a_link_is_not_added_again():
+    # A linkified URL whose href carries extra query params would otherwise be listed twice.
+    content = ('<p><a href="https://drive.google.com/file/d/1QHb6UPDJokQ0Bb6Hvp3E6hnr9OnvyYT9/view?usp=sharing">'
+               'https://drive.google.com/file/d/1QHb6UPDJokQ0Bb6Hvp3E6hnr9OnvyYT9/view</a></p>')
+    assert len(find_external_links(content)) == 1
+
+
+def test_non_external_hrefs_are_ignored():
+    content = '<p><a href="https://x.com/gurumie1229/status/2118778363846578591">LINK</a></p>'
+    assert find_external_links(content) == []
+
+
 # --- find_post_password() ---
 
 def test_find_post_password_scrapes_regardless_of_any_link():
