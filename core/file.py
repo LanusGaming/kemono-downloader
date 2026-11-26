@@ -5,7 +5,7 @@ from .files import generate_hash
 from .network import SESSION, get_headers, wait_for_request_slot
 from . import config
 from .config import DATA_DIR, TEMP_DIR
-from .summary import NotFoundError, DownloadTimeoutError, QuotaExceededError, MirrorBlockedError
+from .summary import NotFoundError, DownloadTimeoutError, QuotaExceededError, MirrorBlockedError, TempLinkExpiredError
 from .utils import *
 
 logger = logging.getLogger("downloader")
@@ -36,6 +36,7 @@ DEFAULT_FILE = {
     'path': '',
     'name': '',
     'url': '',
+    'download_url': '',  # where to fetch from, if not `url` - a preview-only file's temp_url
     'type': '',
     'password': '',
     'parent_archive_id': None,
@@ -100,13 +101,15 @@ class File:
         resumes from what's already in temp_path with a Range request instead of starting over -
         the mirror serves some large files slowly enough that a connection drop mid-file is
         likely, and restarting from zero each time may never finish. Only attempts that make no
-        progress count towards DOWNLOAD_MAX_ATTEMPTS. A 404 fails immediately
+        progress count towards DOWNLOAD_MAX_ATTEMPTS. Fetches download_url (a preview-only
+        file's temp_url) if set, else url. A 404 fails immediately
         with no retry (the file isn't imported on the mirror yet); a 403 too
         (the mirror's DDoS-Guard front blocking this IP as a bot - retrying through it, even
         slowly, only escalates the block); a 502 always waits 5s regardless of
         DOWNLOAD_RETRY_DELAY; a 429 (rate limited) honors the server's Retry-After header, or
         waits 30s if none is given, since retrying a rate limit quickly just prolongs it. Raises
-        NotFoundError on a 404, MirrorBlockedError on a 403, or DownloadTimeoutError once
+        NotFoundError on a 404, TempLinkExpiredError on a temp link's "link expired" 403,
+        MirrorBlockedError on any other 403, or DownloadTimeoutError once
         retries are exhausted."""
 
         dest_path = self.get_dest_download_path()
@@ -126,7 +129,7 @@ class File:
                 # (connect, read) - the read timeout is per socket read, not for the whole file:
                 # the mirror sometimes leaves a connection open but stops sending, and it's
                 # quicker to resume on a fresh one than to wait that out
-                r = SESSION.get(self.url, headers=headers, stream=True, timeout=(30, 60))
+                r = SESSION.get(self.download_url or self.url, headers=headers, stream=True, timeout=(30, 60))
                 r.raise_for_status()
 
                 # A 206 carries only the rest of the file; a 200 means the server ignored the
@@ -148,6 +151,13 @@ class File:
                     if os.path.exists(temp_path):
                         os.remove(temp_path)
                     raise NotFoundError(f"404 -> {dest_path}") from e
+
+                if (isinstance(e, HTTPError) and e.response.status_code == 403 and self.download_url
+                        and 'expired' in e.response.text.lower()):
+                    logger.warning(f"Skipping retries (temp link expired) -> {dest_path}")
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    raise TempLinkExpiredError(f"403 link expired -> {dest_path}") from e
 
                 if isinstance(e, HTTPError) and e.response.status_code == 403:
                     logger.warning(f"Skipping retries (403, blocked by the mirror) -> {dest_path}")

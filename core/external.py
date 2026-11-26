@@ -321,7 +321,8 @@ def list_mega_folder(url: str) -> list[dict]:
     """Enumerates a Mega folder link's contents via `megatools dl --choose-files`, aborting
     before any download by piping in a non-numeric answer. Returns one dict per file: {'number',
     'name', 'path', 'size'} - 'number' is only valid against a listing made just before it's used;
-    'path' is approximate for deeply-nested folders; 'size' is bytes, or None if not shown."""
+    'path' is relative to the download dir, as megatools saves it; 'size' is bytes, or None if not
+    shown."""
 
     result = _run_megatools(
         ['dl', '--choose-files', '--no-progress', '--path', config.TEMP_DIR, url],
@@ -333,7 +334,10 @@ def list_mega_folder(url: str) -> list[dict]:
 
     for line in result.stdout.splitlines():
         clean = ANSI_RE.sub('', line)
-        depth = clean.count('|--')
+        # Nesting is shown by indenting a single '|--' marker 3 columns per level, not by
+        # repeating the marker: depth 1 is '|--', depth 2 '   |--', depth 3 '      |--'.
+        marker = clean.find('|--')
+        depth = 0 if marker < 0 else marker // 3 + 1
         stripped = clean.replace('|--', '').strip()
 
         m = _MEGA_LISTING_LINE_RE.match(stripped)

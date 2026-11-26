@@ -1077,3 +1077,19 @@ def test_folder_of_first_download_ignored_once_deleted(make_creator, fresh_db, t
     record_file_at(fresh_db, creator, tmp_dirs['data'] / 'gone_patreon_111' / 'Post_p1' / '000_a.png')
     creator = make_creator(name='Someone')
     assert creator.folder_name == 'Someone_patreon_111'
+
+
+def test_preview_only_attachment_downloads_from_temp_url_but_keeps_its_hash_url(make_creator):
+    creator = make_creator()
+    temp = 'https://t3.pawchive.pw/f/050662a19242a300/a.png?e=1&s=2'
+    files, _ = creator.detect_files_in_post({
+        'id': 'p1', 'service': 'patreon', 'user': '111', 'title': 'Post', 'published': '2024-01-01T00:00:00',
+        'file': None, 'attachments': [
+            {'name': 'a.png', 'path': '/61/ca/61cae9d0.png', 'preview_only': True, 'temp_url': temp},
+            {'name': 'b.png', 'path': '/aa/bb/aabb.png'},
+            {'name': 'c.png', 'path': '/cc/dd/ccdd.png', 'preview_only': True},  # no temp_url given
+        ],
+    })
+
+    assert [f.download_url for f in files] == [temp, '', '']
+    assert files[0].url.endswith('/61/ca/61cae9d0.png')  # dedup/DB still key on the real hash

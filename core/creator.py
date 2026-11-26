@@ -35,6 +35,16 @@ DEFAULT_CREATOR_CONFIG_TEMPLATE = os.path.join(os.path.dirname(__file__), 'creat
 ALBUMPROPS_FILENAME = '.albumprops'
 ALBUMPROPS_MARKER = '# Written by kemono-downloader from ALBUM_NAME'
 
+def _preview_only_url(file_data: dict) -> str | None:
+    """pawchive marks a file it doesn't host itself as `preview_only`, and offers it only through
+    a signed `temp_url` on t1-t4.pawchive.pw (the full original - same hash as its `path`, but
+    the file server 404s). The signature expires a few hours after the post was fetched, and the
+    file itself after `temp_expires`."""
+
+    if file_data.get('preview_only') and file_data.get('temp_url'):
+        return file_data['temp_url']
+    return None
+
 class Creator:
     def __init__(self, service: str, id: str):
         """Fetches the creator's profile, then loads its per-creator config and known file
@@ -127,13 +137,15 @@ class Creator:
         if include_kemono_files:
             if 'file' in post and post['file'] and 'path' in post['file']:
                 file_data = post['file']
-                file_datas.append((file_data['path'], file_data.get('name', ''), index, 'thumbnail'))
+                file_datas.append((file_data['path'], file_data.get('name', ''), index, 'thumbnail',
+                                   _preview_only_url(file_data)))
                 index += 1
 
             if 'attachments' in post:
                 for attachment in post['attachments']:
                     if isinstance(attachment, dict) and 'path' in attachment:
-                        file_datas.append((attachment['path'], attachment.get('name', ''), index, 'attachment'))
+                        file_datas.append((attachment['path'], attachment.get('name', ''), index, 'attachment',
+                                           _preview_only_url(attachment)))
                         index += 1
 
         # Embeds and external links both need the post's full HTML content. kemono.cr's
@@ -154,7 +166,7 @@ class Creator:
             for img in soup.select('img[src]'):
                 img_url = img['src']
                 img_name = os.path.basename(img_url)
-                file_datas.append((img_url, img_name, index, 'embed'))
+                file_datas.append((img_url, img_name, index, 'embed', None))
 
                 index += 1
 
@@ -170,6 +182,7 @@ class Creator:
             file_name = file_data[1]
             file_index = file_data[2]
             file_type = file_data[3]
+            temp_url = file_data[4]
 
             if self.ALLOWED_TYPES and not file_type in self.ALLOWED_TYPES:
                 skipped += 1
@@ -203,6 +216,7 @@ class Creator:
                 'index': file_index,
                 'name': sanitize_filename(file_name),
                 'url': file_url,
+                'download_url': temp_url or '',
                 'type': file_type,
                 'password': post_password or '',
             })

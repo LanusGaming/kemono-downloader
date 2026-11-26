@@ -16,6 +16,7 @@ FAIL_EXTERNAL_UNSUPPORTED = 'external_link_unsupported'
 FAIL_EXTERNAL_QUOTA = 'external_quota_exceeded'
 FAIL_EXTERNAL_DOWNLOAD = 'external_download_error'
 FAIL_MIRROR_BLOCKED = 'mirror_blocked'
+FAIL_TEMP_LINK_EXPIRED = 'temp_link_expired'
 
 class DownloadError(Exception):
     """Base for classified download/extraction failures - never raised directly. `reason` is one
@@ -52,6 +53,11 @@ class MirrorBlockedError(DownloadError):
     """A 403 from the file host - the mirror's DDoS-Guard front blocking this IP as a bot. Not
     retried within the file - retrying through the block is what escalates it."""
     reason = FAIL_MIRROR_BLOCKED
+
+class TempLinkExpiredError(DownloadError):
+    """A preview-only file's signed temp_url (valid for a few hours after the post was fetched)
+    has expired - the next run fetches a fresh one."""
+    reason = FAIL_TEMP_LINK_EXPIRED
 
 @dataclass
 class FileOutcome:

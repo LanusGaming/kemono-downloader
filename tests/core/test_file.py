@@ -7,7 +7,7 @@ import core.config
 import core.file
 import core.external
 from core.file import DEFAULT_FILE, File
-from core.summary import NotFoundError, DownloadTimeoutError, QuotaExceededError, MirrorBlockedError
+from core.summary import NotFoundError, DownloadTimeoutError, QuotaExceededError, MirrorBlockedError, TempLinkExpiredError
 
 
 def make_file(**overrides) -> File:
@@ -116,6 +116,32 @@ def test_download_403_fails_immediately_as_mirror_blocked(tmp_dirs, requests_moc
     assert requests_mock.call_count == 1
     assert sleep_calls == []
     assert not os.path.exists(file.get_temp_download_path())
+
+
+TEMP_URL = 'https://t3.pawchive.pw/f/050662a19242a300/x.png?e=1795687451&s=e0c2'
+
+
+def test_download_fetches_preview_only_file_from_its_temp_url(tmp_dirs, requests_mock):
+    file = make_file(download_url=TEMP_URL)
+    requests_mock.get(TEMP_URL, content=b'original-bytes')
+    main = requests_mock.get(file.url, status_code=404)
+
+    file.download()
+
+    assert main.call_count == 0
+    with open(file.path, 'rb') as f:
+        assert f.read() == b'original-bytes'
+
+
+def test_download_expired_temp_link_is_not_treated_as_mirror_block(tmp_dirs, requests_mock, monkeypatch):
+    monkeypatch.setattr(core.file.time, "sleep", lambda s: None)
+    file = make_file(download_url=TEMP_URL)
+    requests_mock.get(TEMP_URL, status_code=403, text='link expired')
+
+    with pytest.raises(TempLinkExpiredError):
+        file.download()
+
+    assert requests_mock.call_count == 1
 
 
 def test_download_retry_resumes_partial_temp_file_with_range_request(tmp_dirs, requests_mock, monkeypatch):

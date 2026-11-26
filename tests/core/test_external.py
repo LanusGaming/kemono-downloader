@@ -261,6 +261,41 @@ MEGA_FOLDER_LISTING_STDOUT = (
 )
 
 
+# Real output for a folder with nested subfolders, including a subfolder named like its parent.
+MEGA_NESTED_LISTING_STDOUT = (
+    "1. 26.7 reward/\n"
+    "|--\x1b[0m2. aeameth3.jpg (4.5\u00a0MiB)\n"
+    "|--\x1b[0m3. chisa comic/\n"
+    "   |--\x1b[0m4. CHISA COMIC.zip (41.0\u00a0MiB)\n"
+    "|--\x1b[0m5. ruruka2/\n"
+    "   |--\x1b[0m6. anime_/\n"
+    "      |--\x1b[0m7. ruruka.mp4 (195.6\u00a0MiB)\n"
+    "   |--\x1b[0m8. ruruka2 差分.zip (14.6\u00a0MiB)\n"
+    "|--\x1b[0m9. 26.7 reward/\n"
+    "   |--\x1b[0m10. Pebalt1.png (1.3\u00a0MiB)\n"
+    "Enter numbers of files or folders to download separated by spaces "
+    "(or type 'all' to download everything, or a range with two numbers separated by '-'):\n"
+    "> WARNING: Skipping non-numeric value 'q'\n"
+)
+
+
+def test_list_mega_folder_follows_indentation_for_nested_folders(monkeypatch):
+    monkeypatch.setattr(
+        external.subprocess, "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout=MEGA_NESTED_LISTING_STDOUT, stderr=''),
+    )
+
+    entries = external.list_mega_folder('https://mega.nz/folder/x#y')
+
+    assert {e['number']: e['path'] for e in entries} == {
+        2: '26.7 reward/aeameth3.jpg',
+        4: '26.7 reward/chisa comic/CHISA COMIC.zip',
+        7: '26.7 reward/ruruka2/anime_/ruruka.mp4',
+        8: '26.7 reward/ruruka2/ruruka2 差分.zip',
+        10: '26.7 reward/26.7 reward/Pebalt1.png',
+    }
+
+
 def test_list_mega_folder_parses_real_choose_files_output(monkeypatch):
     monkeypatch.setattr(
         external.subprocess, "run",
