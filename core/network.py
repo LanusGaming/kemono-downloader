@@ -41,6 +41,32 @@ def mark_mirror_unblocked() -> None:
     global _mirror_blocked
     _mirror_blocked = False
 
+# File servers (hostnames) that refused a connection this run - see File._fetch_kemono() and
+# Creator.download_all_files(). Process-global and reset per run, like _mirror_blocked.
+_unavailable_hosts: set[str] = set()
+_hosts_lock = threading.Lock()
+
+def is_host_unavailable(host: str) -> bool:
+    with _hosts_lock:
+        return host in _unavailable_hosts
+
+def unavailable_hosts() -> set[str]:
+    with _hosts_lock:
+        return set(_unavailable_hosts)
+
+def mark_host_unavailable(host: str) -> bool:
+    """Returns True if the host wasn't marked yet."""
+
+    with _hosts_lock:
+        if host in _unavailable_hosts:
+            return False
+        _unavailable_hosts.add(host)
+        return True
+
+def mark_host_available(host: str) -> None:
+    with _hosts_lock:
+        _unavailable_hosts.discard(host)
+
 def get_user_agent() -> str:
     """Identifies this tool honestly - the mirror blocks clients pretending to be a browser - with
     USER_AGENT_CONTACT appended when set, so the operator can reach out instead of blocking."""

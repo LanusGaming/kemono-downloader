@@ -292,6 +292,15 @@ pretending to be a browser, which gets clients blocked. If the file host still a
 rest of that creator's downloads are skipped; each next creator's first file is attempted for real
 to probe whether the block has lifted. Skipped files are simply picked up again on the next run.
 
+pawchive.pw names the node each file is stored on (`server`, e.g. `n3.pawchive.pw`), which the
+file host would only redirect to, so files are fetched from that node directly (only https hosts
+under `DOMAIN` are used). A node can refuse connections for hours after a burst of downloads; the
+first refusal fails that file as `file_server_unavailable` without retrying, and the rest of that
+node's files are skipped while the other nodes carry on. As with the mirror block, each next
+creator tries one file on the node to see whether it's back. Files pawchive only holds as a
+preview (`preview_only`) are fetched from their signed `temp_url`, which expires a few hours after
+the post was fetched (`temp_link_expired`).
+
 `reconcile` (see below) also accepts `--domain`, `--file-domain`, and `--file-path-prefix` flags to
 override these for a single run — handy for reconciling a library against a different mirror than
 the one it was originally downloaded from.

@@ -1,11 +1,15 @@
 import os, logging, shutil, time
+from urllib.parse import urlparse
+import requests
 from requests import HTTPError
 
 from .files import generate_hash
 from .network import SESSION, get_headers, wait_for_request_slot
+from . import network
 from . import config
 from .config import DATA_DIR, TEMP_DIR
-from .summary import NotFoundError, DownloadTimeoutError, QuotaExceededError, MirrorBlockedError, TempLinkExpiredError
+from .summary import NotFoundError, DownloadTimeoutError, QuotaExceededError, MirrorBlockedError, TempLinkExpiredError, \
+    ServerUnavailableError
 from .utils import *
 
 logger = logging.getLogger("downloader")
@@ -36,7 +40,7 @@ DEFAULT_FILE = {
     'path': '',
     'name': '',
     'url': '',
-    'download_url': '',  # where to fetch from, if not `url` - a preview-only file's temp_url
+    'download_url': '',  # where to fetch from, if not `url` - its file server, or a temp_url
     'type': '',
     'password': '',
     'parent_archive_id': None,
@@ -65,6 +69,11 @@ class File:
         
         return data
     
+    def get_fetch_host(self) -> str:
+        """Hostname this file is downloaded from (see download_url)."""
+
+        return urlparse(self.download_url or self.url).hostname or ''
+
     def get_folder_path(self) -> str:
         creator_folder = self.creator_folder or f"{self.creator_name}_{self.creator_service}_{self.creator_id}"
         return f"/{creator_folder}/{self.post_title}_{self.post_id}"
@@ -108,7 +117,8 @@ class File:
         slowly, only escalates the block); a 502 always waits 5s regardless of
         DOWNLOAD_RETRY_DELAY; a 429 (rate limited) honors the server's Retry-After header, or
         waits 30s if none is given, since retrying a rate limit quickly just prolongs it. Raises
-        NotFoundError on a 404, TempLinkExpiredError on a temp link's "link expired" 403,
+        ServerUnavailableError (no retry) when the server refuses the connection, NotFoundError
+        on a 404, TempLinkExpiredError on a temp link's "link expired" 403,
         MirrorBlockedError on any other 403, or DownloadTimeoutError once
         retries are exhausted."""
 
@@ -146,6 +156,16 @@ class File:
                 return
 
             except Exception as e:
+                if isinstance(e, requests.exceptions.ConnectionError) and 'Connection refused' in str(e):
+                    # The server itself refuses (not a dropped transfer) - fail now and let the
+                    # creator skip the rest of this server's files, instead of retrying into it.
+                    host = urlparse(e.request.url).hostname if e.request is not None else self.get_fetch_host()
+                    if network.mark_host_unavailable(host):
+                        logger.warning(f"File server {host} refused the connection - skipping its files")
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    raise ServerUnavailableError(f"{host} refused the connection -> {dest_path}") from e
+
                 if isinstance(e, HTTPError) and e.response.status_code == 404:
                     logger.warning(f"Skipping retries (404) -> {dest_path}")
                     if os.path.exists(temp_path):

@@ -39,6 +39,7 @@ def reset_network_state(monkeypatch):
     own waits rather than the 1s gaps between request starts."""
 
     monkeypatch.setattr(core.network, "_mirror_blocked", False)
+    monkeypatch.setattr(core.network, "_unavailable_hosts", set())
     monkeypatch.setattr(core.network, "_next_request_at", 0.0)
     monkeypatch.setattr(core.network, "MIN_REQUEST_INTERVAL", 0)
 

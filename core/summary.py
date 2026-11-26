@@ -17,6 +17,7 @@ FAIL_EXTERNAL_QUOTA = 'external_quota_exceeded'
 FAIL_EXTERNAL_DOWNLOAD = 'external_download_error'
 FAIL_MIRROR_BLOCKED = 'mirror_blocked'
 FAIL_TEMP_LINK_EXPIRED = 'temp_link_expired'
+FAIL_SERVER_UNAVAILABLE = 'file_server_unavailable'
 
 class DownloadError(Exception):
     """Base for classified download/extraction failures - never raised directly. `reason` is one
@@ -58,6 +59,11 @@ class TempLinkExpiredError(DownloadError):
     """A preview-only file's signed temp_url (valid for a few hours after the post was fetched)
     has expired - the next run fetches a fresh one."""
     reason = FAIL_TEMP_LINK_EXPIRED
+
+class ServerUnavailableError(DownloadError):
+    """The file server refused the connection - pawchive's nodes (n1-n4) do that for hours after
+    a burst of downloads. Not retried: hammering a refusing node is what keeps it refusing."""
+    reason = FAIL_SERVER_UNAVAILABLE
 
 @dataclass
 class FileOutcome:

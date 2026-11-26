@@ -1,4 +1,5 @@
 import hashlib, json, os, logging, re, shutil
+from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -35,14 +36,25 @@ DEFAULT_CREATOR_CONFIG_TEMPLATE = os.path.join(os.path.dirname(__file__), 'creat
 ALBUMPROPS_FILENAME = '.albumprops'
 ALBUMPROPS_MARKER = '# Written by kemono-downloader from ALBUM_NAME'
 
-def _preview_only_url(file_data: dict) -> str | None:
-    """pawchive marks a file it doesn't host itself as `preview_only`, and offers it only through
-    a signed `temp_url` on t1-t4.pawchive.pw (the full original - same hash as its `path`, but
-    the file server 404s). The signature expires a few hours after the post was fetched, and the
-    file itself after `temp_expires`."""
+def _download_url(file_data: dict) -> str | None:
+    """Where to fetch a post's file/attachment from, if not the default file URL:
+    - pawchive marks a file it doesn't host itself as `preview_only`, and offers it only through
+      a signed `temp_url` on t1-t4.pawchive.pw (the full original - same hash as its `path`, but
+      the file server 404s). The signature expires a few hours after the post was fetched, and
+      the file itself after `temp_expires`.
+    - Otherwise pawchive names the node holding the file (`server`, n1-n4.pawchive.pw), which
+      the file server would only redirect to - fetching it directly halves the requests. Only
+      https hosts under DOMAIN are trusted."""
 
     if file_data.get('preview_only') and file_data.get('temp_url'):
         return file_data['temp_url']
+
+    server = file_data.get('server')
+    if isinstance(server, str) and file_data.get('path'):
+        parsed = urlparse(server)
+        host, domain = parsed.hostname or '', app_config.DOMAIN
+        if parsed.scheme == 'https' and (host == domain or host.endswith('.' + domain)):
+            return (f"https://{host}{app_config.FILE_PATH_PREFIX}" + file_data['path']).split('f=')[0]
     return None
 
 class Creator:
@@ -138,14 +150,14 @@ class Creator:
             if 'file' in post and post['file'] and 'path' in post['file']:
                 file_data = post['file']
                 file_datas.append((file_data['path'], file_data.get('name', ''), index, 'thumbnail',
-                                   _preview_only_url(file_data)))
+                                   _download_url(file_data)))
                 index += 1
 
             if 'attachments' in post:
                 for attachment in post['attachments']:
                     if isinstance(attachment, dict) and 'path' in attachment:
                         file_datas.append((attachment['path'], attachment.get('name', ''), index, 'attachment',
-                                           _preview_only_url(attachment)))
+                                           _download_url(attachment)))
                         index += 1
 
         # Embeds and external links both need the post's full HTML content. kemono.cr's
@@ -513,6 +525,18 @@ class Creator:
             elif kemono_files:
                 logger.warning("Still blocked by the mirror - skipping remaining downloads for this creator")
 
+        # Same probe for each file server that refused connections earlier in the run: one file
+        # per server per creator, so a server that recovers is used again.
+        for host in sorted(network.unavailable_hosts()):
+            probe = next((f for f in kemono_files if f.get_fetch_host() == host), None)
+            if probe is None or network.is_mirror_blocked():
+                continue
+            kemono_files.remove(probe)
+            results[probe] = self.download_file(probe)
+            if results[probe].reason != summary.FAIL_SERVER_UNAVAILABLE:
+                logger.info(f"File server {host} is reachable again - resuming its downloads")
+                network.mark_host_available(host)
+
         with ThreadPoolExecutor(max_workers=max_workers) as exe:
             futures = {exe.submit(self._download_kemono_file, file): file for file in kemono_files}
 
@@ -548,11 +572,14 @@ class Creator:
 
     def _download_kemono_file(self, file: File) -> FileOutcome:
         """download_file() for the kemono pool, failing straight away once the mirror is blocked
-        - files still queued in the pool when the block hits never send a request. Marks the
+        or the file's server has refused a connection (see File._fetch_kemono()) - files still
+        queued in the pool when that happens never send a request. Marks the
         block from the worker itself, before it picks up its next file."""
 
         if network.is_mirror_blocked():
             return FileOutcome('failed', summary.FAIL_MIRROR_BLOCKED)
+        if network.is_host_unavailable(file.get_fetch_host()):
+            return FileOutcome('failed', summary.FAIL_SERVER_UNAVAILABLE)
 
         outcome = self.download_file(file)
         if outcome.reason == summary.FAIL_MIRROR_BLOCKED and not network.is_mirror_blocked():

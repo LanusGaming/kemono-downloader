@@ -7,7 +7,8 @@ import core.config
 import core.file
 import core.external
 from core.file import DEFAULT_FILE, File
-from core.summary import NotFoundError, DownloadTimeoutError, QuotaExceededError, MirrorBlockedError, TempLinkExpiredError
+from core.summary import NotFoundError, DownloadTimeoutError, QuotaExceededError, MirrorBlockedError, TempLinkExpiredError, \
+    ServerUnavailableError
 
 
 def make_file(**overrides) -> File:
@@ -340,3 +341,22 @@ def test_finalize_moves_temp_path_and_sets_hash(tmp_dirs):
     assert not os.path.exists(temp_path)
     from core.files import generate_hash
     assert file.hash == generate_hash(file.path)
+
+
+def test_download_refused_connection_fails_at_once_and_marks_the_server(tmp_dirs, requests_mock, monkeypatch):
+    import requests
+    import core.network
+    monkeypatch.setattr(core.config, "DOWNLOAD_MAX_ATTEMPTS", 20)
+    sleep_calls = []
+    monkeypatch.setattr(core.file.time, "sleep", lambda s: sleep_calls.append(s))
+    file = make_file(download_url='https://n3.pawchive.pw/data/1f1/a2/f1a2.jpg')
+    requests_mock.get(file.download_url, exc=requests.exceptions.ConnectionError(
+        "HTTPSConnectionPool(host='n3.pawchive.pw', port=443): Max retries exceeded (Caused by "
+        "NewConnectionError('Failed to establish a new connection: [Errno 111] Connection refused'))"))
+
+    with pytest.raises(ServerUnavailableError):
+        file.download()
+
+    assert requests_mock.call_count == 1
+    assert sleep_calls == []
+    assert core.network.is_host_unavailable('n3.pawchive.pw')

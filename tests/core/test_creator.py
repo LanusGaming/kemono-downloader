@@ -1093,3 +1093,64 @@ def test_preview_only_attachment_downloads_from_temp_url_but_keeps_its_hash_url(
 
     assert [f.download_url for f in files] == [temp, '', '']
     assert files[0].url.endswith('/61/ca/61cae9d0.png')  # dedup/DB still key on the real hash
+
+
+# --- per-file-server availability ---
+
+def node_file(i, node):
+    return File({'source': 'kemono', 'url': f'https://file.pawchive.pw/data/{i}.jpg', 'name': f'{i}.jpg',
+                 'download_url': f'https://{node}.pawchive.pw/data/{i}.jpg', 'type': 'attachment'})
+
+
+def test_download_all_files_skips_rest_of_a_refusing_server_but_keeps_the_others(make_creator, monkeypatch):
+    creator = make_creator()
+    calls = []
+    def fake_download_file(self, file):
+        calls.append(file)
+        if file.get_fetch_host() == 'n3.pawchive.pw':
+            network_module.mark_host_unavailable('n3.pawchive.pw')  # as File._fetch_kemono() does
+            return FileOutcome('failed', summary.FAIL_SERVER_UNAVAILABLE)
+        return FileOutcome('success')
+    monkeypatch.setattr(Creator, "download_file", fake_download_file)
+
+    files = [node_file(0, 'n3'), node_file(1, 'n3'), node_file(2, 'n1'), node_file(3, 'n3')]
+    results = creator.download_all_files(files, max_workers=1)
+
+    assert calls == [files[0], files[2]]
+    assert [results[f].reason for f in files] == [summary.FAIL_SERVER_UNAVAILABLE] * 2 + [None, summary.FAIL_SERVER_UNAVAILABLE]
+    assert network_module.is_mirror_blocked() is False
+
+
+def test_download_all_files_probes_a_refusing_server_once_per_creator(make_creator, monkeypatch):
+    creator = make_creator()
+    network_module.mark_host_unavailable('n3.pawchive.pw')
+    calls = []
+    monkeypatch.setattr(Creator, "download_file", lambda self, file: calls.append(file) or FileOutcome('success'))
+
+    files = [node_file(0, 'n1'), node_file(1, 'n3'), node_file(2, 'n3')]
+    results = creator.download_all_files(files, max_workers=1)
+
+    assert calls[0] == files[1]  # probed on its own before the pool
+    assert set(calls) == set(files)
+    assert not network_module.is_host_unavailable('n3.pawchive.pw')
+    assert all(o.status == 'success' for o in results.values())
+
+
+def test_detect_files_downloads_from_the_named_server_only_under_the_mirror_domain(make_creator, monkeypatch):
+    monkeypatch.setattr(creator_module.app_config, "DOMAIN", "pawchive.pw")
+    monkeypatch.setattr(creator_module.app_config, "FILE_PATH_PREFIX", "/data")
+    creator = make_creator()
+    files, _ = creator.detect_files_in_post({
+        'id': 'p1', 'service': 'patreon', 'user': '111', 'title': 'Post', 'published': '2024-01-01T00:00:00',
+        'file': None, 'attachments': [
+            {'name': 'a.png', 'path': '/1f1/a2/f1a2.png', 'server': 'https://n3.pawchive.pw'},
+            {'name': 'b.png', 'path': '/aa/bb/aabb.png', 'server': 'https://evil.example'},
+            {'name': 'c.png', 'path': '/cc/dd/ccdd.png', 'server': 'http://n1.pawchive.pw'},
+            {'name': 'd.png', 'path': '/dd/ee/ddee.png', 'server': 'https://n2.pawchive.pw',
+             'preview_only': True, 'temp_url': 'https://t2.pawchive.pw/f/x/d.png?e=1&s=2'},
+        ],
+    })
+
+    assert [f.download_url for f in files] == [
+        'https://n3.pawchive.pw/data/1f1/a2/f1a2.png', '', '', 'https://t2.pawchive.pw/f/x/d.png?e=1&s=2']
+    assert files[0].get_fetch_host() == 'n3.pawchive.pw'
